@@ -2,11 +2,6 @@
 const CONFIG = {
   GPS_TIMEOUT: 5000,
   CACHE_HOURS: 1,
-  DEFAULT_LOCATION: {
-    district: "Dhaka",
-    division: "Dhaka",
-    country: "Bangladesh",
-  },
 };
 
 //Helpers
@@ -77,9 +72,13 @@ function getDistrictElement() {
 const el = {
   district: getDistrictElement(),
   time: document.getElementById("current-time"),
-  locationLine: document.getElementById("current-location"),
+  currentDate: document.getElementById("current-date"),
 
   locationNotice: document.getElementById("location-notice"),
+
+  districtSelector: document.getElementById("district-selector"),
+  districtInput: document.getElementById("districtInput"),
+  districtOptions: document.getElementById("districtOptions"),
 
   ramadanDay: document.getElementById("ramadan-day"),
   sehri: document.getElementById("sehri-time"),
@@ -100,7 +99,7 @@ const navEl = {
   calendarGrid: document.getElementById("calendarGrid"),
 };
 
-/* Prayer table */
+//Prayer Time 
 const prayerStart = {
   Fajr: document.querySelector("#fajr-row .prayer-time"),
   Dhuhr: document.querySelector("#dhuhr-row .prayer-time"),
@@ -118,12 +117,30 @@ const prayerJamaah = {
 };
 
 let prayerDB = null;
-let activeDistrictKey = CONFIG.DEFAULT_LOCATION.district;
+let activeDistrictKey = null;
+let districtKeyByLower = null;
+let ramadanDateSet = null;
 let calendarState = {
   year: new Date().getFullYear(),
-  monthIndex: new Date().getMonth(), // 0-based
-  selectedDateKey: null, // DD/MM/YYYY
+  monthIndex: new Date().getMonth(), 
+  selectedDateKey: null, 
 };
+
+async function ensureRamadanDateSet() {
+  if (ramadanDateSet) return ramadanDateSet;
+  const db = await loadDB();
+  const keys = Object.keys(db);
+  if (keys.length === 0) {
+    ramadanDateSet = new Set();
+    return ramadanDateSet;
+  }
+
+// Use the first district's data to extract Ramadan dates
+  const firstKey = keys[0];
+  const list = Array.isArray(db[firstKey]) ? db[firstKey] : [];
+  ramadanDateSet = new Set(list.filter(x => x && x.date && x.ramadanDay != null).map(x => x.date));
+  return ramadanDateSet;
+}
 
 //Clock
 function startClock() {
@@ -137,21 +154,42 @@ function updateClock() {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    hour12: true,
   });
 }
 
 //Update Top Info UI
 function updateTopInfoUI(loc) {
   if (!el.district) el.district = getDistrictElement();
-  setText(el.district, `District: ${loc.district}`);
-  const date = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  setText(el.district, `${loc && loc.district ? loc.district : "Select district"}`);
 
-  setText(el.locationLine, `${loc.division}, ${loc.country} • ${date}`);
+  const now = new Date();
+  const isMobile = window.matchMedia && window.matchMedia("(max-width: 650px)").matches;
+  const date = isMobile
+    ? formatDateDDMMYYYY(now)
+    : now.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+
+  setText(el.currentDate, date);
+}
+
+function resetPrayerUI() {
+  setText(el.ramadanDay, "--");
+  setText(el.sehri, "--");
+  setText(el.iftar, "--");
+
+  for (const p in prayerStart) {
+    setText(prayerStart[p], "--");
+    setText(prayerJamaah[p], "--");
+  }
+
+  document
+    .querySelectorAll("#prayer-table tbody tr")
+    .forEach(r => r.classList.remove("current-prayer"));
 }
 
 //Cache
@@ -191,6 +229,13 @@ function ensureLocationNoticeEl() {
 function setLocationNotice(message) {
   const node = ensureLocationNoticeEl();
   if (!node) return;
+
+  const important =
+    typeof message === "string" &&
+    (message.startsWith("Location permission denied") ||
+      message.startsWith("Location is unavailable"));
+
+  node.classList.toggle("location-notice--important", Boolean(important));
 
   if (message) {
     node.textContent = message;
@@ -253,7 +298,7 @@ async function getPrayerTimes(district) {
   const db = await loadDB();
   const keys = Object.keys(db);
   const key = keys.find(k => k.toLowerCase() === String(district).toLowerCase());
-  const resolvedKey = key || keys.find(k => k.toLowerCase() === CONFIG.DEFAULT_LOCATION.district.toLowerCase());
+  const resolvedKey = key;
   if (!resolvedKey) return null;
 
   activeDistrictKey = resolvedKey;
@@ -360,12 +405,87 @@ function monthLabel(year, monthIndex) {
 
 async function getDistrictEntriesMap() {
   const db = await loadDB();
+  if (!activeDistrictKey || !db[activeDistrictKey]) return new Map();
   const list = Array.isArray(db[activeDistrictKey]) ? db[activeDistrictKey] : [];
   const map = new Map();
   for (const item of list) {
     if (item && item.date) map.set(item.date, item);
   }
   return map;
+}
+
+async function ensureDistrictOptions() {
+  if (!el.districtInput) el.districtInput = document.getElementById("districtInput");
+  if (!el.districtOptions) el.districtOptions = document.getElementById("districtOptions");
+  if (!el.districtOptions) return;
+
+  const db = await loadDB();
+  const keys = Object.keys(db).sort((a, b) => a.localeCompare(b));
+
+  districtKeyByLower = new Map(keys.map(k => [k.toLowerCase(), k]));
+
+  el.districtOptions.innerHTML = "";
+  for (const k of keys) {
+    const opt = document.createElement("option");
+    opt.value = k;
+    el.districtOptions.appendChild(opt);
+  }
+}
+
+function resolveDistrictKeyFromInput(value) {
+  const v = String(value || "").trim();
+  if (!v) return null;
+  if (!districtKeyByLower) return null;
+  return districtKeyByLower.get(v.toLowerCase()) || null;
+}
+
+function showDistrictSelector(message) {
+  if (!el.districtSelector) el.districtSelector = document.getElementById("district-selector");
+  if (el.districtSelector) el.districtSelector.hidden = false;
+  if (!el.districtInput) el.districtInput = document.getElementById("districtInput");
+  if (el.districtInput) el.districtInput.value = "";
+  setLocationNotice(message);
+}
+
+function hideDistrictSelector() {
+  if (!el.districtSelector) el.districtSelector = document.getElementById("district-selector");
+  if (el.districtSelector) el.districtSelector.hidden = true;
+}
+
+function wireDistrictSelector() {
+  if (!el.districtInput) el.districtInput = document.getElementById("districtInput");
+  if (!el.districtInput) return;
+
+  const tryLoad = async () => {
+    const resolved = resolveDistrictKeyFromInput(el.districtInput.value);
+    if (!resolved) return;
+
+    activeDistrictKey = resolved;
+    updateTopInfoUI({ district: resolved });
+
+    const prayerData = await getPrayerTimes(resolved);
+    if (!prayerData) {
+      resetPrayerUI();
+      setLocationNotice("No prayer times found for this district.");
+      return;
+    }
+
+    setLocationNotice(null);
+    renderPrayerTimes(prayerData);
+    calendarState.selectedDateKey = today();
+
+    if (navEl.calendarModal?.classList.contains("active")) {
+      renderCalendar();
+    }
+  };
+
+  el.districtInput.addEventListener("change", tryLoad);
+  el.districtInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      tryLoad();
+    }
+  });
 }
 
 async function renderCalendar() {
@@ -395,6 +515,7 @@ async function renderCalendar() {
 
   const todayKey = formatDateDDMMYYYY(new Date());
   const entries = await getDistrictEntriesMap();
+  const ramadanDates = await ensureRamadanDateSet();
 
   for (let day = 1; day <= last.getDate(); day++) {
     const d = new Date(calendarState.year, calendarState.monthIndex, day);
@@ -406,7 +527,7 @@ async function renderCalendar() {
     cell.dataset.dateKey = key;
 
     if (key === todayKey) cell.classList.add("today");
-    if (entries.has(key)) cell.classList.add("ramadan-day");
+    if (entries.has(key) || (ramadanDates && ramadanDates.has(key))) cell.classList.add("ramadan-day");
     if (calendarState.selectedDateKey && key === calendarState.selectedDateKey) cell.classList.add("selected");
 
     cell.addEventListener("click", async () => {
@@ -464,19 +585,15 @@ function wireNavigation() {
   navEl.nextMonth?.addEventListener("click", () => shiftCalendarMonth(1));
 }
 
-//Location Resolution if needed(Dhaka Default)
+//Location Resolution
 async function resolveLocation() {
   try {
     const coords = await getGPS(); 
     const loc = await reverseGeocode(coords.latitude, coords.longitude);
     return { ...loc, source: "gps" };
   } catch (err) {
-    const enriched = { ...CONFIG.DEFAULT_LOCATION, source: "default" };
-    enriched._defaultReason =
-      err && typeof err === "object" && err.code === 1
-        ? "permission-denied"
-        : "unavailable";
-    return enriched;
+    const reason = err && typeof err === "object" && err.code === 1 ? "permission-denied" : "unavailable";
+    return { source: "manual", reason };
   }
 }
 
@@ -485,23 +602,33 @@ async function resolveLocation() {
 async function initApp() {
   startClock();
   wireNavigation();
+  wireDistrictSelector();
 
   try {
     const location = await resolveLocation();
     updateTopInfoUI(location);
 
-    if (location && location.source === "default") {
-      const msg =
-        location._defaultReason === "permission-denied"
-          ? "Location permission is denied — showing Dhaka as default location. Allow location for accurate times."
-          : "Could not access your location. Please turn on location and try again — showing Dhaka as default location.";
-      setLocationNotice(msg);
+    if (location && location.source === "gps") {
+      const prayerData = await getPrayerTimes(location.district);
+      if (prayerData) {
+        hideDistrictSelector();
+        setLocationNotice(null);
+        activeDistrictKey = activeDistrictKey || location.district;
+        renderPrayerTimes(prayerData);
+      } else {
+          await ensureDistrictOptions();
+        resetPrayerUI();
+        showDistrictSelector("Your detected location isn't in our district list — please select a district.");
+      }
     } else {
-      setLocationNotice(null);
+        await ensureDistrictOptions();
+      resetPrayerUI();
+      const msg =
+        location && location.reason === "permission-denied"
+          ? "Location permission denied — please select your location manually from the dropdown box."
+          : "Location is unavailable — please select your location manually from the dropdown box.";
+      showDistrictSelector(msg);
     }
-
-    const prayerData = await getPrayerTimes(location.district);
-    renderPrayerTimes(prayerData);
 
     const now = new Date();
     calendarState.year = now.getFullYear();
