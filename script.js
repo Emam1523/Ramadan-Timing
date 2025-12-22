@@ -1,6 +1,6 @@
 //Configurations
 const CONFIG = {
-  GPS_TIMEOUT: 10000,
+  GPS_TIMEOUT: 5000,
   CACHE_HOURS: 1,
   DEFAULT_LOCATION: {
     district: "Dhaka",
