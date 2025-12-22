@@ -8,7 +8,7 @@
             rel="stylesheet"
             href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
         />
-        <link rel="stylesheet" href="style.css" />
+        <link rel="stylesheet" href="/css/style.css" />
     </head>
     <body>
         <!-- Header -->
@@ -107,20 +107,33 @@
                 <div class="time-location-info">
                     <div>
                         <i class="fas fa-map-marker-alt"></i>
-                        <span>District: <span id="district">Loading...</span></span>
+                         <span>District: <span id="district">Loading...</span></span>
                     </div>
                     <div>
                         <i class="fas fa-clock"></i>
                         <span id="current-time">Loading time...</span>
                     </div>
                     <div>
-                        <i class="fas fa-map-marker-alt"></i>
-                        <span id="current-location">Loading location...</span>
+                        <i class="fas fa-calendar-day"></i>
+                        <span id="current-date">Loading date...</span>
                     </div>
                 </div>
             </div>
 
             <div id="location-notice" class="location-notice" hidden role="status" aria-live="polite"></div>
+
+            <div id="district-selector" class="district-selector" hidden>
+                <label for="districtInput">Select district:</label>
+                <input
+                    id="districtInput"
+                    type="search"
+                    list="districtOptions"
+                    placeholder="Type district name..."
+                    aria-label="Select district"
+                    autocomplete="off"
+                />
+                <datalist id="districtOptions"></datalist>
+            </div>
 
             <!-- Second row: Ramadan day count, Sehri time, Iftar time -->
             <div class="ramadan-info-row">
@@ -259,8 +272,7 @@
                     <i class="fas fa-mosque"></i> Ramadan Times
                 </div>
                 <p class="footer-description">
-                    Providing accurate prayer times and Ramadan information for
-                    the Muslim community worldwide.
+                    Powered by PANTONIX
                 </p>
                 <p class="copyright">
                     &copy; 2025 Ramadan Prayer Times. All rights reserved. |
