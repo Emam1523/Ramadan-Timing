@@ -494,7 +494,7 @@ async function initApp() {
       const msg =
         location._defaultReason === "permission-denied"
           ? "Location permission is denied — showing Dhaka as default location. Allow location for accurate times."
-          : "Could not access your location — showing Dhaka as default location.";
+          : "Could not access your location. Please turn on location and try again — showing Dhaka as default location.";
       setLocationNotice(msg);
     } else {
       setLocationNotice(null);
