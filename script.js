@@ -21,7 +21,9 @@ function pad2(n) {
 }
 
 function formatDateDDMMYYYY(date) {
-  return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+  return `${pad2(date.getDate())}/${pad2(
+    date.getMonth() + 1
+  )}/${date.getFullYear()}`;
 }
 
 function parseDateDDMMYYYY(str) {
@@ -105,7 +107,7 @@ const navEl = {
   calendarGrid: document.getElementById("calendarGrid"),
 };
 
-//Prayer Time 
+//Prayer Time Elements
 const prayerStart = {
   Fajr: document.querySelector("#fajr-row .prayer-time"),
   Dhuhr: document.querySelector("#dhuhr-row .prayer-time"),
@@ -128,29 +130,30 @@ let districtKeyByLower = null;
 let ramadanDateSet = null;
 let locationWatchId = null;
 let lastResolvedDistrict = null;
+let currentPermissionState = null; 
 let calendarState = {
   year: new Date().getFullYear(),
-  monthIndex: new Date().getMonth(), 
-  selectedDateKey: null, 
+  monthIndex: new Date().getMonth(),
+  selectedDateKey: null,
 };
 
 async function ensureRamadanDateSet() {
   if (ramadanDateSet) return ramadanDateSet;
+
   const db = await loadDB();
-  const keys = Object.keys(db);
-  if (keys.length === 0) {
+  if (!activeDistrictKey || !db[activeDistrictKey]) {
     ramadanDateSet = new Set();
     return ramadanDateSet;
   }
 
-// Use the first district's data to extract Ramadan dates
-  const firstKey = keys[0];
-  const list = Array.isArray(db[firstKey]) ? db[firstKey] : [];
-  ramadanDateSet = new Set(list.filter(x => x && x.date && x.ramadanDay != null).map(x => x.date));
+  const list = db[activeDistrictKey];
+  ramadanDateSet = new Set(
+    list.filter((x) => x?.date && x.ramadanDay != null).map((x) => x.date)
+  );
   return ramadanDateSet;
 }
 
-//Clock
+//Clock UI
 function startClock() {
   updateClock();
   setInterval(updateClock, 1000);
@@ -169,10 +172,14 @@ function updateClock() {
 //Update Top Info UI
 function updateTopInfoUI(loc) {
   if (!el.district) el.district = getDistrictElement();
-  setText(el.district, `${loc && loc.district ? loc.district : "Select district"}`);
+  setText(
+    el.district,
+    `${loc && loc.district ? loc.district : "Select district"}`
+  );
 
   const now = new Date();
-  const isMobile = window.matchMedia && window.matchMedia("(max-width: 650px)").matches;
+  const isMobile =
+    window.matchMedia && window.matchMedia("(max-width: 650px)").matches;
   const date = isMobile
     ? formatDateDDMMYYYY(now)
     : now.toLocaleDateString("en-US", {
@@ -185,6 +192,7 @@ function updateTopInfoUI(loc) {
   setText(el.currentDate, date);
 }
 
+//Reset Prayer UI
 function resetPrayerUI() {
   setText(el.ramadanDay, "--");
   setText(el.sehri, "--");
@@ -197,9 +205,10 @@ function resetPrayerUI() {
 
   document
     .querySelectorAll("#prayer-table tbody tr")
-    .forEach(r => r.classList.remove("current-prayer"));
+    .forEach((r) => r.classList.remove("current-prayer"));
 }
 
+//Location Notice & Gate UI
 function ensureLocationNoticeEl() {
   if (el.locationNotice) return el.locationNotice;
   const anchor = document.querySelector(".top-info-row");
@@ -217,6 +226,7 @@ function ensureLocationNoticeEl() {
   return node;
 }
 
+// Sets or clears the location notice message.
 function setLocationNotice(message) {
   const node = ensureLocationNoticeEl();
   if (!node) return;
@@ -237,27 +247,39 @@ function setLocationNotice(message) {
   }
 }
 
+// Shows the location gate with customizable message, title, and button text.
 function showLocationGate(
   message,
-  { showButton, title, buttonText } = { showButton: true, title: null, buttonText: null }
+  { showButton, title, buttonText } = {
+    showButton: true,
+    title: null,
+    buttonText: null,
+  }
 ) {
-  if (!el.locationGate) el.locationGate = document.getElementById("locationGate");
-  if (!el.locationGateText) el.locationGateText = document.getElementById("locationGateText");
-  if (!el.locationGateTitle) el.locationGateTitle = document.querySelector(".location-gate-title");
-  if (!el.turnOnLocationBtn) el.turnOnLocationBtn = document.getElementById("turnOnLocationBtn");
-  if (!el.appContainer) el.appContainer = document.getElementById("appContainer");
+  if (!el.locationGate)
+    el.locationGate = document.getElementById("locationGate");
+  if (!el.locationGateText)
+    el.locationGateText = document.getElementById("locationGateText");
+  if (!el.locationGateTitle)
+    el.locationGateTitle = document.querySelector(".location-gate-title");
+  if (!el.turnOnLocationBtn)
+    el.turnOnLocationBtn = document.getElementById("turnOnLocationBtn");
+  if (!el.appContainer)
+    el.appContainer = document.getElementById("appContainer");
 
-  if (el.locationGateText) el.locationGateText.textContent = message || "Location is required.";
+  if (el.locationGateText)
+    el.locationGateText.textContent = message || "Location is required.";
   if (el.locationGateTitle && title) el.locationGateTitle.textContent = title;
-  if (el.turnOnLocationBtn && buttonText) el.turnOnLocationBtn.textContent = buttonText;
+  if (el.turnOnLocationBtn && buttonText)
+    el.turnOnLocationBtn.textContent = buttonText;
   if (el.turnOnLocationBtn) el.turnOnLocationBtn.hidden = !showButton;
   if (el.locationGate) el.locationGate.hidden = false;
   if (el.appContainer) el.appContainer.hidden = true;
 
-  hideDistrictSelector();
   setLocationNotice(null);
 }
 
+// Specific gate variants
 function showTurnOnLocationButton(message) {
   showLocationGate(message || "Location is unavailable.", {
     showButton: true,
@@ -266,6 +288,7 @@ function showTurnOnLocationButton(message) {
   });
 }
 
+// Permission prompt gate without button
 function showLocationPermissionGate(message) {
   showLocationGate(message || "Please allow location access to continue.", {
     showButton: false,
@@ -273,6 +296,7 @@ function showLocationPermissionGate(message) {
   });
 }
 
+// Gate with button to request location access
 function showLocationAccessButtonGate(message) {
   showLocationGate(message || "Tap the button to allow location access.", {
     showButton: true,
@@ -281,13 +305,17 @@ function showLocationAccessButtonGate(message) {
   });
 }
 
+// Hides the location gate and shows the main app container.
 function hideTurnOnLocationButton() {
-  if (!el.locationGate) el.locationGate = document.getElementById("locationGate");
-  if (!el.appContainer) el.appContainer = document.getElementById("appContainer");
+  if (!el.locationGate)
+    el.locationGate = document.getElementById("locationGate");
+  if (!el.appContainer)
+    el.appContainer = document.getElementById("appContainer");
   if (el.locationGate) el.locationGate.hidden = true;
   if (el.appContainer) el.appContainer.hidden = false;
 }
 
+//Geolocation Permission State
 async function getGeolocationPermissionState() {
   try {
     if (!navigator.permissions || !navigator.permissions.query) return null;
@@ -298,39 +326,21 @@ async function getGeolocationPermissionState() {
   }
 }
 
-//GPS
-function getGPS() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("GPS not supported"));
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      pos => resolve(pos.coords),
-      err => reject(err),
-      {
-        enableHighAccuracy: true,
-        timeout: CONFIG.GPS_TIMEOUT,
-        maximumAge: 0,
-      }
-    );
-  });
-}
-
 //Reverse Geocoding
 async function reverseGeocode(lat, lon) {
   const url =
     `https://api.bigdatacloud.net/data/reverse-geocode-client` +
     `?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
 
-  const res = await fetch(url);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 5000);
+  const res = await fetch(url, { signal: ctrl.signal });
+  clearTimeout(t);
+
   const data = await res.json();
 
   return {
     district: data.city || data.locality || "Unknown",
-    division: data.principalSubdivision || "Unknown",
-    country: data.countryName || "Unknown",
   };
 }
 
@@ -342,14 +352,18 @@ async function loadDB() {
   return prayerDB;
 }
 
+// Get today's date in DD/MM/YYYY format
 function today() {
   return formatDateDDMMYYYY(new Date());
 }
 
+// Get Prayer Times for a District
 async function getPrayerTimes(district) {
   const db = await loadDB();
-  const keys = Object.keys(db);
-  const key = keys.find(k => k.toLowerCase() === String(district).toLowerCase());
+  const key = Object.keys(db).find(
+    (k) => k.toLowerCase() === String(district).toLowerCase()
+  );
+
   const resolvedKey = key;
   if (!resolvedKey) return null;
 
@@ -358,18 +372,18 @@ async function getPrayerTimes(district) {
   if (list.length === 0) return null;
 
   const target = today();
-  const exact = list.find(d => d.date === target);
+  const exact = list.find((d) => d.date === target);
   if (exact) return exact;
 
   const targetDate = parseDateDDMMYYYY(target);
   if (!targetDate) return list[0];
 
   const withParsed = list
-    .map(item => ({ item, parsed: parseDateDDMMYYYY(item.date) }))
-    .filter(x => x.parsed);
+    .map((item) => ({ item, parsed: parseDateDDMMYYYY(item.date) }))
+    .filter((x) => x.parsed);
 
   const pastOrToday = withParsed
-    .filter(x => x.parsed.getTime() <= targetDate.getTime())
+    .filter((x) => x.parsed.getTime() <= targetDate.getTime())
     .sort((a, b) => a.parsed.getTime() - b.parsed.getTime());
 
   if (pastOrToday.length > 0) return pastOrToday[pastOrToday.length - 1].item;
@@ -417,9 +431,12 @@ function highlightCurrentPrayer(data) {
 
   document
     .querySelectorAll("#prayer-table tbody tr")
-    .forEach(r => r.classList.remove("current-prayer"));
+    .forEach((r) => r.classList.remove("current-prayer"));
 
-  let active = currentMinutes < times[0].minutes ? times[times.length - 1].name : times[0].name;
+  let active =
+    currentMinutes < times[0].minutes
+      ? times[times.length - 1].name
+      : times[0].name;
   for (const t of times) {
     if (currentMinutes >= t.minutes) active = t.name;
   }
@@ -435,6 +452,7 @@ function openMobileNav() {
   navEl.overlay?.classList.add("active");
 }
 
+//Mobile Navigation
 function closeMobileNav() {
   navEl.mobileNav?.classList.remove("active");
   navEl.overlay?.classList.remove("active");
@@ -446,19 +464,24 @@ function openCalendar() {
   closeMobileNav();
 }
 
+//Calendar Modal
 function closeCalendar() {
   navEl.calendarModal?.classList.remove("active");
 }
 
+// Month Label
 function monthLabel(year, monthIndex) {
   const d = new Date(year, monthIndex, 1);
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
+// Get a map of date keys to entries for the active district.
 async function getDistrictEntriesMap() {
   const db = await loadDB();
   if (!activeDistrictKey || !db[activeDistrictKey]) return new Map();
-  const list = Array.isArray(db[activeDistrictKey]) ? db[activeDistrictKey] : [];
+  const list = Array.isArray(db[activeDistrictKey])
+    ? db[activeDistrictKey]
+    : [];
   const map = new Map();
   for (const item of list) {
     if (item && item.date) map.set(item.date, item);
@@ -466,15 +489,18 @@ async function getDistrictEntriesMap() {
   return map;
 }
 
+//District Selector
 async function ensureDistrictOptions() {
-  if (!el.districtInput) el.districtInput = document.getElementById("districtInput");
-  if (!el.districtOptions) el.districtOptions = document.getElementById("districtOptions");
+  if (!el.districtInput)
+    el.districtInput = document.getElementById("districtInput");
+  if (!el.districtOptions)
+    el.districtOptions = document.getElementById("districtOptions");
   if (!el.districtOptions) return;
 
   const db = await loadDB();
   const keys = Object.keys(db).sort((a, b) => a.localeCompare(b));
 
-  districtKeyByLower = new Map(keys.map(k => [k.toLowerCase(), k]));
+  districtKeyByLower = new Map(keys.map((k) => [k.toLowerCase(), k]));
 
   el.districtOptions.innerHTML = "";
   for (const k of keys) {
@@ -484,26 +510,26 @@ async function ensureDistrictOptions() {
   }
 }
 
-function resolveDistrictKeyFromInput(value) {
+// Resolve district key from user input
+async function resolveDistrictKeyFromInput(value) {
+  if (!districtKeyByLower) await ensureDistrictOptions();
   const v = String(value || "").trim();
   if (!v) return null;
-  if (!districtKeyByLower) return null;
   return districtKeyByLower.get(v.toLowerCase()) || null;
 }
 
-function showDistrictSelector(message) {
-  if (!el.districtSelector) el.districtSelector = document.getElementById("district-selector");
+// Show district selector with optional message and clear flag
+function showDistrictSelector(message, clear = false) {
+  if (!el.districtSelector)
+    el.districtSelector = document.getElementById("district-selector");
+  if (!el.districtInput)
+    el.districtInput = document.getElementById("districtInput");
   if (el.districtSelector) el.districtSelector.hidden = false;
-  if (!el.districtInput) el.districtInput = document.getElementById("districtInput");
-  if (el.districtInput) el.districtInput.value = "";
+  if (clear && el.districtInput) el.districtInput.value = "";
   setLocationNotice(message);
 }
 
-function hideDistrictSelector() {
-  if (!el.districtSelector) el.districtSelector = document.getElementById("district-selector");
-  if (el.districtSelector) el.districtSelector.hidden = true;
-}
-
+// Stop location tracking
 function stopLocationTracking() {
   if (locationWatchId != null && navigator.geolocation) {
     navigator.geolocation.clearWatch(locationWatchId);
@@ -511,21 +537,27 @@ function stopLocationTracking() {
   locationWatchId = null;
 }
 
+// Apply district selection
 async function applyDistrict(districtName) {
+  ramadanDateSet = null;
+
   const prayerData = await getPrayerTimes(districtName);
   if (!prayerData) {
     await ensureDistrictOptions();
     resetPrayerUI();
-    showDistrictSelector("Your detected location isn't in our district list — please select a district.");
+    showDistrictSelector(
+      "Your detected location isn't in our district list — please select a district."
+    );
     return;
   }
 
-  hideDistrictSelector();
   hideTurnOnLocationButton();
+  showDistrictSelector(null);
   setLocationNotice(null);
-  activeDistrictKey = districtName;
+
   updateTopInfoUI({ district: districtName });
   renderPrayerTimes(prayerData);
+
   calendarState.selectedDateKey = today();
 
   if (navEl.calendarModal?.classList.contains("active")) {
@@ -533,58 +565,99 @@ async function applyDistrict(districtName) {
   }
 }
 
+// Start location tracking
 async function startLocationTracking() {
   stopLocationTracking();
 
   if (!navigator.geolocation) {
-    showTurnOnLocationButton("Location is not supported on this device/browser.");
+    hideTurnOnLocationButton();
+    await ensureDistrictOptions();
+    resetPrayerUI();
+    showDistrictSelector(
+      "Location is not supported — please select your district from the dropdown box."
+    );
     return;
   }
 
   locationWatchId = navigator.geolocation.watchPosition(
-    async pos => {
+    async (pos) => {
       try {
-        const loc = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+        const loc = await reverseGeocode(
+          pos.coords.latitude,
+          pos.coords.longitude
+        );
         const district = loc && loc.district ? loc.district : null;
         if (!district) return;
 
-        // Avoid reloading everything if district didn't change.
-        if (lastResolvedDistrict && lastResolvedDistrict.toLowerCase() === district.toLowerCase()) return;
+        if (
+          lastResolvedDistrict &&
+          normalizeDistrict(lastResolvedDistrict) ===
+            normalizeDistrict(district)
+        ) {
+          return;
+        }
+
         lastResolvedDistrict = district;
 
         await applyDistrict(district);
       } catch (e) {
         console.error(e);
+        stopLocationTracking();
+        await ensureDistrictOptions();
+        resetPrayerUI();
+        showDistrictSelector(
+          "Could not detect your district — please select manually from the dropdown."
+        );
       }
     },
-    async err => {
+    async (err) => {
       const code = err && typeof err === "object" ? err.code : null;
 
       // 1 = permission denied
       if (code === 1) {
         stopLocationTracking();
+        activeDistrictKey = null;
         hideTurnOnLocationButton();
         await ensureDistrictOptions();
         resetPrayerUI();
         showDistrictSelector(
-          "Location permission denied — please select your location manually from the dropdown box. (You denied permission before. So clear/reset browser cache and try again for live location.)"
+          "Location permission denied — please select your location manually from the dropdown box."
         );
         return;
       }
 
-      // 2 = position unavailable (often GPS off), 3 = timeout
+      // 2 = position unavailable, 3 = timeout
       if (code === 2 || code === 3) {
+        stopLocationTracking();
+        activeDistrictKey = null;
         resetPrayerUI();
-        showTurnOnLocationButton(
-          "Location is unavailable — please turn on location and tap the button to try again."
-        );
+        // Show appropriate message based on permission state
+        if (currentPermissionState === "granted") {
+          showTurnOnLocationButton(
+            "Please turn ON location and tap the button to detect your district."
+          );
+        } else {
+          hideTurnOnLocationButton();
+          await ensureDistrictOptions();
+          showDistrictSelector(
+            "Location is unavailable — please select your district from the dropdown box."
+          );
+        }
         return;
       }
 
       resetPrayerUI();
-      showTurnOnLocationButton(
-        "Location is unavailable — please turn on location and tap the button to try again."
-      );
+      if (currentPermissionState === "granted") {
+        showTurnOnLocationButton(
+          "Please turn ON location and tap the button to detect your district."
+        );
+      } else {
+        hideTurnOnLocationButton();
+        await ensureDistrictOptions();
+        showDistrictSelector(
+          "Location is unavailable — please select your district from the dropdown box."
+        );
+      }
     },
     {
       enableHighAccuracy: true,
@@ -594,12 +667,21 @@ async function startLocationTracking() {
   );
 }
 
+// Normalize district string for comparison
+function normalizeDistrict(str) {
+  return String(str || "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+}
+
+// Wire up district selector input events
 function wireDistrictSelector() {
-  if (!el.districtInput) el.districtInput = document.getElementById("districtInput");
+  if (!el.districtInput)
+    el.districtInput = document.getElementById("districtInput");
   if (!el.districtInput) return;
 
   const tryLoad = async () => {
-    const resolved = resolveDistrictKeyFromInput(el.districtInput.value);
+    const resolved = await resolveDistrictKeyFromInput(el.districtInput.value);
     if (!resolved) return;
 
     lastResolvedDistrict = resolved;
@@ -607,7 +689,7 @@ function wireDistrictSelector() {
   };
 
   el.districtInput.addEventListener("change", tryLoad);
-  el.districtInput.addEventListener("keydown", e => {
+  el.districtInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
       tryLoad();
@@ -615,10 +697,20 @@ function wireDistrictSelector() {
   });
 }
 
+// Render Calendar
 async function renderCalendar() {
+  if (!activeDistrictKey) {
+    if (!el.locationNotice || el.locationNotice.hidden) {
+      setLocationNotice("Please select a district to view the calendar.");
+    }
+    return;
+  }
   if (!navEl.calendarGrid || !navEl.currentMonth) return;
 
-  setText(navEl.currentMonth, monthLabel(calendarState.year, calendarState.monthIndex));
+  setText(
+    navEl.currentMonth,
+    monthLabel(calendarState.year, calendarState.monthIndex)
+  );
   navEl.calendarGrid.innerHTML = "";
 
   const headers = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -654,12 +746,16 @@ async function renderCalendar() {
     cell.dataset.dateKey = key;
 
     if (key === todayKey) cell.classList.add("today");
-    if (entries.has(key) || (ramadanDates && ramadanDates.has(key))) cell.classList.add("ramadan-day");
-    if (calendarState.selectedDateKey && key === calendarState.selectedDateKey) cell.classList.add("selected");
+    if (entries.has(key) || (ramadanDates && ramadanDates.has(key)))
+      cell.classList.add("ramadan-day");
+    if (calendarState.selectedDateKey && key === calendarState.selectedDateKey)
+      cell.classList.add("selected");
 
     cell.addEventListener("click", async () => {
       calendarState.selectedDateKey = key;
-      qsa(".calendar-day.selected", navEl.calendarGrid).forEach(n => n.classList.remove("selected"));
+      qsa(".calendar-day.selected", navEl.calendarGrid).forEach((n) =>
+        n.classList.remove("selected")
+      );
       cell.classList.add("selected");
 
       const entry = entries.get(key);
@@ -670,6 +766,7 @@ async function renderCalendar() {
   }
 }
 
+// Shift Calendar Month
 function shiftCalendarMonth(delta) {
   const d = new Date(calendarState.year, calendarState.monthIndex + delta, 1);
   calendarState.year = d.getFullYear();
@@ -677,16 +774,22 @@ function shiftCalendarMonth(delta) {
   renderCalendar();
 }
 
+// Wire Navigation Events
 function wireNavigation() {
   navEl.mobileMenuBtn?.addEventListener("click", openMobileNav);
   navEl.mobileNavClose?.addEventListener("click", closeMobileNav);
   navEl.overlay?.addEventListener("click", closeMobileNav);
 
-  qsa(".nav-link").forEach(link => {
-    link.addEventListener("click", e => {
+  qsa(".nav-link").forEach((link) => {
+    link.addEventListener("click", (e) => {
       e.preventDefault();
       const route = link.dataset.route;
       if (route === "calendar" || link.classList.contains("calendar-trigger")) {
+        if (!activeDistrictKey) {
+          setLocationNotice("Please select a district to view the calendar.");
+          closeMobileNav();
+          return;
+        }
         openCalendar();
         renderCalendar();
       } else {
@@ -697,11 +800,11 @@ function wireNavigation() {
   });
 
   navEl.closeCalendar?.addEventListener("click", closeCalendar);
-  navEl.calendarModal?.addEventListener("click", e => {
+  navEl.calendarModal?.addEventListener("click", (e) => {
     if (e.target === navEl.calendarModal) closeCalendar();
   });
 
-  document.addEventListener("keydown", e => {
+  document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeMobileNav();
       closeCalendar();
@@ -721,15 +824,17 @@ async function initApp() {
   // Remove any old cached location data from previous versions.
   try {
     localStorage.removeItem("locationCache");
-  } catch {
-    // ignore
-  }
+  } catch {}
 
-  if (!el.turnOnLocationBtn) el.turnOnLocationBtn = document.getElementById("turnOnLocationBtn");
+  if (!el.turnOnLocationBtn)
+    el.turnOnLocationBtn = document.getElementById("turnOnLocationBtn");
   el.turnOnLocationBtn?.addEventListener("click", () => {
-    // GPS OFF: user turns on location, then taps this to retry.
-    // Permission prompt: this click triggers the browser permission prompt.
-    showLocationPermissionGate("Requesting location access…");
+    // On button click, if permission is already granted, start tracking.
+    if (currentPermissionState === "granted") {
+      showTurnOnLocationButton("Detecting your location…");
+    } else {
+      showLocationPermissionGate("Requesting location access…");
+    }
     startLocationTracking();
   });
 
@@ -740,6 +845,7 @@ async function initApp() {
     showLocationPermissionGate("Checking location permission…");
 
     const permState = await getGeolocationPermissionState();
+    currentPermissionState = permState;
     if (permState === "denied") {
       hideTurnOnLocationButton();
       await ensureDistrictOptions();
@@ -748,42 +854,47 @@ async function initApp() {
         "Location permission denied — please select your location manually from the dropdown box."
       );
     } else if (permState === "granted") {
-      // Permission already granted: go inside and track live location immediately.
-      hideTurnOnLocationButton();
-      await startLocationTracking();
+      // Permission granted: show turn-on-location button.
+      showTurnOnLocationButton(
+        "Permission granted. Please turn ON location and tap the button to detect your district."
+      );
+      await ensureDistrictOptions();
     } else {
-
-      showLocationAccessButtonGate("Allow location access to get your prayer times.");
+      // Permission prompt or unknown: show allow-location-access button.
+      showLocationAccessButtonGate("Allow location access to auto-detect your district.");
+      await ensureDistrictOptions();
     }
 
-    // If the user changes location permission while the app is open, recover automatically.
     try {
       if (navigator.permissions && navigator.permissions.query) {
-        const status = await navigator.permissions.query({ name: "geolocation" });
+        const status = await navigator.permissions.query({
+          name: "geolocation",
+        });
         status.onchange = async () => {
           const state = status.state;
+          currentPermissionState = state;
           if (state === "granted") {
             lastResolvedDistrict = null;
-            hideTurnOnLocationButton();
-            await startLocationTracking();
+            showTurnOnLocationButton(
+              "Permission granted. Please turn ON location and tap the button to detect your district."
+            );
           } else if (state === "denied") {
             stopLocationTracking();
             hideTurnOnLocationButton();
             await ensureDistrictOptions();
             resetPrayerUI();
             showDistrictSelector(
-              "Location permission denied — please select your location manually from the dropdown box. (You denied permission before. So clear/reset browser cache and try again for live location.)"
+              "Location permission denied — please select your location manually from the dropdown box."
             );
           } else {
-            // prompt
             stopLocationTracking();
-            showLocationAccessButtonGate("Allow location access to get your prayer times.");
+            showLocationAccessButtonGate(
+              "Allow location access to get your prayer times."
+            );
           }
         };
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
 
     const now = new Date();
     calendarState.year = now.getFullYear();
