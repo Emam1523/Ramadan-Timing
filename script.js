@@ -772,7 +772,7 @@ async function initApp() {
             await ensureDistrictOptions();
             resetPrayerUI();
             showDistrictSelector(
-              "Location permission denied — please select your location manually from the dropdown box. (To enable GPS permission again, change your browser/site location permission to Allow.)"
+              "Location permission denied — please select your location manually from the dropdown box. (You denied permission before. So clear/reset browser cache and try again for live location.)"
             );
           } else {
             // prompt
