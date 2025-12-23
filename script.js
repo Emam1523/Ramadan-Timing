@@ -594,7 +594,7 @@ function probeGeolocation(timeoutMs) {
         (pos) => resolve({ ok: true, pos }),
         (err) => resolve({ ok: false, err }),
         {
-          enableHighAccuracy: false,
+          enableHighAccuracy: true,
           timeout: timeoutMs,
           maximumAge: 0,
         }
@@ -958,16 +958,12 @@ async function initApp() {
       return;
     }
 
-    // Show a clear reminder before requesting permission
-    showLocationPermissionGate(
-      "Make sure location is ON, then allow access in the next prompt…"
-    );
+    // Show detecting message
+    showLocationPermissionGate("Detecting your location…");
 
-    // Small delay so user sees the message
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // Try to get location - this will trigger permission prompt if needed
-    const probe = await probeGeolocation(CONFIG.QUICK_GPS_TIMEOUT);
+    // Try to get location - use longer timeout for better reliability
+    // This will trigger permission prompt if needed
+    const probe = await probeGeolocation(CONFIG.GPS_TIMEOUT);
     
     if (probe.ok) {
       // Location is ON and permission granted - automatically track
@@ -1004,8 +1000,9 @@ async function initApp() {
 
     if (code === 2 || code === 3) {
       // Location is OFF or unavailable
+      geoFailureCount += 1;
       showTurnOnLocationButton(
-        " Location is OFF on your device! Turn ON location, then tap the button again."
+        "Location is OFF on your device! Turn ON location, then tap the button again."
       );
       return;
     }
