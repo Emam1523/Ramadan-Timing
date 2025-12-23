@@ -246,6 +246,63 @@
             font-weight: 700;
         }
 
+        .location-gate[hidden] {
+            display: none;
+        }
+
+        .location-gate {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.65);
+            z-index: 2500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .location-gate-card {
+            width: 100%;
+            max-width: 560px;
+            background: white;
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+            border-left: 6px solid #1a5c48;
+            text-align: center;
+        }
+
+        .location-gate-title {
+            font-size: 1.6rem;
+            font-weight: 900;
+            color: #0c3b2e;
+            margin-bottom: 0.6rem;
+        }
+
+        .location-gate-text {
+            color: #555;
+            font-size: 1rem;
+            margin-bottom: 1.1rem;
+        }
+
+        .turn-on-location-btn {
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            padding: 0.9rem 1.2rem;
+            margin: 0;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e0e0e0;
+            border-left: 5px solid #1a5c48;
+            color: #0c3b2e;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .turn-on-location-btn:hover {
+            background: #f8fdfa;
+        }
+
         .district-selector {
             background: white;
             border-radius: 12px;
