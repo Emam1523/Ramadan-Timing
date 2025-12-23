@@ -541,9 +541,6 @@ async function startLocationTracking() {
     return;
   }
 
-  // GPS ON + permission not granted: watchPosition will automatically prompt.
-  // GPS OFF / unavailable: error code 2/3 => show Turn on location button.
-  // Permission denied: error code 1 => show district dropdown.
   locationWatchId = navigator.geolocation.watchPosition(
     async pos => {
       try {
@@ -740,10 +737,6 @@ async function initApp() {
     updateTopInfoUI({ district: "Select district" });
     resetPrayerUI();
 
-    // Gate-first flow:
-    // - If permission is prompt/unknown => show ONLY access permission gate (button), and request permission after tap
-    // - If permission denied => enter app + show dropdown
-    // - If GPS is off/unavailable (error 2/3) => show Turn on location gate
     showLocationPermissionGate("Checking location permission…");
 
     const permState = await getGeolocationPermissionState();
@@ -752,15 +745,14 @@ async function initApp() {
       await ensureDistrictOptions();
       resetPrayerUI();
       showDistrictSelector(
-        "Location permission denied — please select your location manually from the dropdown box. (To enable GPS permission again, change your browser/site location permission to Allow.)"
+        "Location permission denied — please select your location manually from the dropdown box."
       );
     } else if (permState === "granted") {
       // Permission already granted: go inside and track live location immediately.
       hideTurnOnLocationButton();
       await startLocationTracking();
     } else {
-      // Permission prompt (or unknown): show the access permission gate.
-      // This avoids triggering a permission prompt while the device location (GPS) is off.
+
       showLocationAccessButtonGate("Allow location access to get your prayer times.");
     }
 
