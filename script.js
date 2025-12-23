@@ -1,7 +1,6 @@
 //Configurations
 const CONFIG = {
-  GPS_TIMEOUT: 5000,
-  CACHE_HOURS: 1,
+  GPS_TIMEOUT: 6000,
 };
 
 //Helpers
@@ -76,6 +75,13 @@ const el = {
 
   locationNotice: document.getElementById("location-notice"),
 
+  turnOnLocationBtn: document.getElementById("turnOnLocationBtn"),
+
+  locationGate: document.getElementById("locationGate"),
+  locationGateText: document.getElementById("locationGateText"),
+  locationGateTitle: document.querySelector(".location-gate-title"),
+  appContainer: document.getElementById("appContainer"),
+
   districtSelector: document.getElementById("district-selector"),
   districtInput: document.getElementById("districtInput"),
   districtOptions: document.getElementById("districtOptions"),
@@ -120,6 +126,8 @@ let prayerDB = null;
 let activeDistrictKey = null;
 let districtKeyByLower = null;
 let ramadanDateSet = null;
+let locationWatchId = null;
+let lastResolvedDistrict = null;
 let calendarState = {
   year: new Date().getFullYear(),
   monthIndex: new Date().getMonth(), 
@@ -192,23 +200,6 @@ function resetPrayerUI() {
     .forEach(r => r.classList.remove("current-prayer"));
 }
 
-//Cache
-function getCache() {
-  try {
-    const c = JSON.parse(localStorage.getItem("locationCache"));
-    if (!c) return null;
-    const hours = (Date.now() - c.time) / 36e5;
-    return hours < CONFIG.CACHE_HOURS ? c : null;
-  } catch {
-    return null;
-  }
-}
-
-function setCache(data) {
-  const payload = data && typeof data === "object" ? data : {};
-  localStorage.setItem("locationCache", JSON.stringify({ ...payload, time: Date.now() }));
-}
-
 function ensureLocationNoticeEl() {
   if (el.locationNotice) return el.locationNotice;
   const anchor = document.querySelector(".top-info-row");
@@ -243,6 +234,67 @@ function setLocationNotice(message) {
   } else {
     node.textContent = "";
     node.hidden = true;
+  }
+}
+
+function showLocationGate(
+  message,
+  { showButton, title, buttonText } = { showButton: true, title: null, buttonText: null }
+) {
+  if (!el.locationGate) el.locationGate = document.getElementById("locationGate");
+  if (!el.locationGateText) el.locationGateText = document.getElementById("locationGateText");
+  if (!el.locationGateTitle) el.locationGateTitle = document.querySelector(".location-gate-title");
+  if (!el.turnOnLocationBtn) el.turnOnLocationBtn = document.getElementById("turnOnLocationBtn");
+  if (!el.appContainer) el.appContainer = document.getElementById("appContainer");
+
+  if (el.locationGateText) el.locationGateText.textContent = message || "Location is required.";
+  if (el.locationGateTitle && title) el.locationGateTitle.textContent = title;
+  if (el.turnOnLocationBtn && buttonText) el.turnOnLocationBtn.textContent = buttonText;
+  if (el.turnOnLocationBtn) el.turnOnLocationBtn.hidden = !showButton;
+  if (el.locationGate) el.locationGate.hidden = false;
+  if (el.appContainer) el.appContainer.hidden = true;
+
+  hideDistrictSelector();
+  setLocationNotice(null);
+}
+
+function showTurnOnLocationButton(message) {
+  showLocationGate(message || "Location is unavailable.", {
+    showButton: true,
+    title: "Turn on location",
+    buttonText: "Turn on location",
+  });
+}
+
+function showLocationPermissionGate(message) {
+  showLocationGate(message || "Please allow location access to continue.", {
+    showButton: false,
+    title: "Allow location access",
+  });
+}
+
+function showLocationAccessButtonGate(message) {
+  showLocationGate(message || "Tap the button to allow location access.", {
+    showButton: true,
+    title: "Allow location access",
+    buttonText: "Allow location access",
+  });
+}
+
+function hideTurnOnLocationButton() {
+  if (!el.locationGate) el.locationGate = document.getElementById("locationGate");
+  if (!el.appContainer) el.appContainer = document.getElementById("appContainer");
+  if (el.locationGate) el.locationGate.hidden = true;
+  if (el.appContainer) el.appContainer.hidden = false;
+}
+
+async function getGeolocationPermissionState() {
+  try {
+    if (!navigator.permissions || !navigator.permissions.query) return null;
+    const status = await navigator.permissions.query({ name: "geolocation" });
+    return status && status.state ? status.state : null;
+  } catch {
+    return null;
   }
 }
 
@@ -452,6 +504,99 @@ function hideDistrictSelector() {
   if (el.districtSelector) el.districtSelector.hidden = true;
 }
 
+function stopLocationTracking() {
+  if (locationWatchId != null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(locationWatchId);
+  }
+  locationWatchId = null;
+}
+
+async function applyDistrict(districtName) {
+  const prayerData = await getPrayerTimes(districtName);
+  if (!prayerData) {
+    await ensureDistrictOptions();
+    resetPrayerUI();
+    showDistrictSelector("Your detected location isn't in our district list — please select a district.");
+    return;
+  }
+
+  hideDistrictSelector();
+  hideTurnOnLocationButton();
+  setLocationNotice(null);
+  activeDistrictKey = districtName;
+  updateTopInfoUI({ district: districtName });
+  renderPrayerTimes(prayerData);
+  calendarState.selectedDateKey = today();
+
+  if (navEl.calendarModal?.classList.contains("active")) {
+    renderCalendar();
+  }
+}
+
+async function startLocationTracking() {
+  stopLocationTracking();
+
+  if (!navigator.geolocation) {
+    showTurnOnLocationButton("Location is not supported on this device/browser.");
+    return;
+  }
+
+  // GPS ON + permission not granted: watchPosition will automatically prompt.
+  // GPS OFF / unavailable: error code 2/3 => show Turn on location button.
+  // Permission denied: error code 1 => show district dropdown.
+  locationWatchId = navigator.geolocation.watchPosition(
+    async pos => {
+      try {
+        const loc = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+        const district = loc && loc.district ? loc.district : null;
+        if (!district) return;
+
+        // Avoid reloading everything if district didn't change.
+        if (lastResolvedDistrict && lastResolvedDistrict.toLowerCase() === district.toLowerCase()) return;
+        lastResolvedDistrict = district;
+
+        await applyDistrict(district);
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    async err => {
+      const code = err && typeof err === "object" ? err.code : null;
+
+      // 1 = permission denied
+      if (code === 1) {
+        stopLocationTracking();
+        hideTurnOnLocationButton();
+        await ensureDistrictOptions();
+        resetPrayerUI();
+        showDistrictSelector(
+          "Location permission denied — please select your location manually from the dropdown box. (To enable GPS permission again, change your browser/site location permission to Allow.)"
+        );
+        return;
+      }
+
+      // 2 = position unavailable (often GPS off), 3 = timeout
+      if (code === 2 || code === 3) {
+        resetPrayerUI();
+        showTurnOnLocationButton(
+          "Location is unavailable — please turn on location and tap the button to try again."
+        );
+        return;
+      }
+
+      resetPrayerUI();
+      showTurnOnLocationButton(
+        "Location is unavailable — please turn on location and tap the button to try again."
+      );
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: CONFIG.GPS_TIMEOUT,
+      maximumAge: 3000,
+    }
+  );
+}
+
 function wireDistrictSelector() {
   if (!el.districtInput) el.districtInput = document.getElementById("districtInput");
   if (!el.districtInput) return;
@@ -460,23 +605,8 @@ function wireDistrictSelector() {
     const resolved = resolveDistrictKeyFromInput(el.districtInput.value);
     if (!resolved) return;
 
-    activeDistrictKey = resolved;
-    updateTopInfoUI({ district: resolved });
-
-    const prayerData = await getPrayerTimes(resolved);
-    if (!prayerData) {
-      resetPrayerUI();
-      setLocationNotice("No prayer times found for this district.");
-      return;
-    }
-
-    setLocationNotice(null);
-    renderPrayerTimes(prayerData);
-    calendarState.selectedDateKey = today();
-
-    if (navEl.calendarModal?.classList.contains("active")) {
-      renderCalendar();
-    }
+    lastResolvedDistrict = resolved;
+    await applyDistrict(resolved);
   };
 
   el.districtInput.addEventListener("change", tryLoad);
@@ -585,49 +715,82 @@ function wireNavigation() {
   navEl.nextMonth?.addEventListener("click", () => shiftCalendarMonth(1));
 }
 
-//Location Resolution
-async function resolveLocation() {
-  try {
-    const coords = await getGPS(); 
-    const loc = await reverseGeocode(coords.latitude, coords.longitude);
-    return { ...loc, source: "gps" };
-  } catch (err) {
-    const reason = err && typeof err === "object" && err.code === 1 ? "permission-denied" : "unavailable";
-    return { source: "manual", reason };
-  }
-}
-
-
 //App Initialization
 async function initApp() {
   startClock();
   wireNavigation();
   wireDistrictSelector();
 
+  // Remove any old cached location data from previous versions.
   try {
-    const location = await resolveLocation();
-    updateTopInfoUI(location);
+    localStorage.removeItem("locationCache");
+  } catch {
+    // ignore
+  }
 
-    if (location && location.source === "gps") {
-      const prayerData = await getPrayerTimes(location.district);
-      if (prayerData) {
-        hideDistrictSelector();
-        setLocationNotice(null);
-        activeDistrictKey = activeDistrictKey || location.district;
-        renderPrayerTimes(prayerData);
-      } else {
-          await ensureDistrictOptions();
-        resetPrayerUI();
-        showDistrictSelector("Your detected location isn't in our district list — please select a district.");
-      }
-    } else {
-        await ensureDistrictOptions();
+  if (!el.turnOnLocationBtn) el.turnOnLocationBtn = document.getElementById("turnOnLocationBtn");
+  el.turnOnLocationBtn?.addEventListener("click", () => {
+    // GPS OFF: user turns on location, then taps this to retry.
+    // Permission prompt: this click triggers the browser permission prompt.
+    showLocationPermissionGate("Requesting location access…");
+    startLocationTracking();
+  });
+
+  try {
+    updateTopInfoUI({ district: "Select district" });
+    resetPrayerUI();
+
+    // Gate-first flow:
+    // - If permission is prompt/unknown => show ONLY access permission gate (button), and request permission after tap
+    // - If permission denied => enter app + show dropdown
+    // - If GPS is off/unavailable (error 2/3) => show Turn on location gate
+    showLocationPermissionGate("Checking location permission…");
+
+    const permState = await getGeolocationPermissionState();
+    if (permState === "denied") {
+      hideTurnOnLocationButton();
+      await ensureDistrictOptions();
       resetPrayerUI();
-      const msg =
-        location && location.reason === "permission-denied"
-          ? "Location permission denied — please select your location manually from the dropdown box."
-          : "Location is unavailable — please select your location manually from the dropdown box.";
-      showDistrictSelector(msg);
+      showDistrictSelector(
+        "Location permission denied — please select your location manually from the dropdown box. (To enable GPS permission again, change your browser/site location permission to Allow.)"
+      );
+    } else if (permState === "granted") {
+      // Permission already granted: go inside and track live location immediately.
+      hideTurnOnLocationButton();
+      await startLocationTracking();
+    } else {
+      // Permission prompt (or unknown): show the access permission gate.
+      // This avoids triggering a permission prompt while the device location (GPS) is off.
+      showLocationAccessButtonGate("Allow location access to get your prayer times.");
+    }
+
+    // If the user changes location permission while the app is open, recover automatically.
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        const status = await navigator.permissions.query({ name: "geolocation" });
+        status.onchange = async () => {
+          const state = status.state;
+          if (state === "granted") {
+            lastResolvedDistrict = null;
+            hideTurnOnLocationButton();
+            await startLocationTracking();
+          } else if (state === "denied") {
+            stopLocationTracking();
+            hideTurnOnLocationButton();
+            await ensureDistrictOptions();
+            resetPrayerUI();
+            showDistrictSelector(
+              "Location permission denied — please select your location manually from the dropdown box. (To enable GPS permission again, change your browser/site location permission to Allow.)"
+            );
+          } else {
+            // prompt
+            stopLocationTracking();
+            showLocationAccessButtonGate("Allow location access to get your prayer times.");
+          }
+        };
+      }
+    } catch {
+      // ignore
     }
 
     const now = new Date();
