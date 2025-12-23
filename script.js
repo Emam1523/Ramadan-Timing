@@ -1,6 +1,8 @@
 //Configurations
 const CONFIG = {
-  GPS_TIMEOUT: 6000,
+  GPS_TIMEOUT: 8000,
+  QUICK_GPS_TIMEOUT: 3500,
+  DB_TIMEOUT: 5000,
 };
 
 //Helpers
@@ -125,6 +127,7 @@ const prayerJamaah = {
 };
 
 let prayerDB = null;
+let prayerDBPromise = null;
 let activeDistrictKey = null;
 let districtKeyByLower = null;
 let ramadanDateSet = null;
@@ -326,30 +329,57 @@ async function getGeolocationPermissionState() {
   }
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs, fetchOptions) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...(fetchOptions || {}), signal: ctrl.signal });
+    if (!res.ok) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 //Reverse Geocoding
 async function reverseGeocode(lat, lon) {
   const url =
     `https://api.bigdatacloud.net/data/reverse-geocode-client` +
     `?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
 
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 5000);
-  const res = await fetch(url, { signal: ctrl.signal });
-  clearTimeout(t);
-
-  const data = await res.json();
+  const data = await fetchJsonWithTimeout(url, 4500);
 
   return {
     district: data.city || data.locality || "Unknown",
   };
 }
 
+function canUseGeolocation() {
+  // Most mobile browsers require a secure context for Geolocation.
+  // (HTTPS, or localhost; LAN http://192.168.x.x is typically NOT secure.)
+  return Boolean(window.isSecureContext && navigator.geolocation);
+}
+
 //DB.json Loading & Prayer Time Lookup
 async function loadDB() {
   if (prayerDB) return prayerDB;
-  const res = await fetch("./db.json", { cache: "no-store" });
-  prayerDB = await res.json();
-  return prayerDB;
+  if (prayerDBPromise) return prayerDBPromise;
+
+  const url = new URL("db.json", window.location.href).toString();
+  prayerDBPromise = fetchJsonWithTimeout(url, CONFIG.DB_TIMEOUT, {
+    cache: "no-store",
+  })
+    .then((db) => {
+      prayerDB = db;
+      return prayerDB;
+    })
+    .finally(() => {
+      prayerDBPromise = null;
+    });
+
+  return prayerDBPromise;
 }
 
 // Get today's date in DD/MM/YYYY format
@@ -578,6 +608,45 @@ async function startLocationTracking() {
     );
     return;
   }
+
+  if (!canUseGeolocation()) {
+    hideTurnOnLocationButton();
+    await ensureDistrictOptions();
+    resetPrayerUI();
+    showDistrictSelector(
+      "Auto-detect requires HTTPS on most mobile browsers — please select your district from the dropdown box."
+    );
+    return;
+  }
+
+  // Fast first fix: try a quick one-time position lookup so mobile users
+  // don't wait too long before seeing results (watchPosition can be slow).
+  try {
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const loc = await reverseGeocode(
+            pos.coords.latitude,
+            pos.coords.longitude
+          );
+          const district = loc && loc.district ? loc.district : null;
+          if (!district) return;
+          lastResolvedDistrict = district;
+          await applyDistrict(district);
+        } catch (e) {
+          console.error(e);
+        }
+      },
+      () => {
+        // Ignore: watchPosition below will still try.
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: CONFIG.QUICK_GPS_TIMEOUT,
+        maximumAge: 60000,
+      }
+    );
+  } catch {}
 
   locationWatchId = navigator.geolocation.watchPosition(
     async (pos) => {
@@ -842,27 +911,36 @@ async function initApp() {
     updateTopInfoUI({ district: "Select district" });
     resetPrayerUI();
 
-    showLocationPermissionGate("Checking location permission…");
+    await ensureDistrictOptions();
 
-    const permState = await getGeolocationPermissionState();
-    currentPermissionState = permState;
-    if (permState === "denied") {
+    // If geolocation can't be used (common on mobile over non-HTTPS), do not block the app.
+    if (!canUseGeolocation()) {
       hideTurnOnLocationButton();
-      await ensureDistrictOptions();
-      resetPrayerUI();
       showDistrictSelector(
-        "Location permission denied — please select your location manually from the dropdown box."
+        "Select your district from the dropdown. (Auto-detect needs HTTPS on most mobile browsers.)"
       );
-    } else if (permState === "granted") {
-      // Permission granted: show turn-on-location button.
-      showTurnOnLocationButton(
-        "Permission granted. Please turn ON location and tap the button to detect your district."
-      );
-      await ensureDistrictOptions();
     } else {
-      // Permission prompt or unknown: show allow-location-access button.
-      showLocationAccessButtonGate("Allow location access to auto-detect your district.");
-      await ensureDistrictOptions();
+      showLocationPermissionGate("Checking location permission…");
+
+      const permState = await getGeolocationPermissionState();
+      currentPermissionState = permState;
+      if (permState === "denied") {
+        hideTurnOnLocationButton();
+        resetPrayerUI();
+        showDistrictSelector(
+          "Location permission denied — please select your location manually from the dropdown box."
+        );
+      } else if (permState === "granted") {
+        // Permission granted: show turn-on-location button.
+        showTurnOnLocationButton(
+          "Permission granted. Please turn ON location and tap the button to detect your district."
+        );
+      } else {
+        // Permission prompt or unknown: show allow-location-access button.
+        showLocationAccessButtonGate(
+          "Allow location access to auto-detect your district."
+        );
+      }
     }
 
     try {
