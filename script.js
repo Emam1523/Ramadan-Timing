@@ -3,6 +3,7 @@ const CONFIG = {
   GPS_TIMEOUT: 8000,
   QUICK_GPS_TIMEOUT: 3500,
   DB_TIMEOUT: 5000,
+  MANUAL_SELECTION_LOCK_MS: 10000,
 };
 
 //Helpers
@@ -133,7 +134,9 @@ let districtKeyByLower = null;
 let ramadanDateSet = null;
 let locationWatchId = null;
 let lastResolvedDistrict = null;
-let currentPermissionState = null; 
+let currentPermissionState = null;
+let geoFailureCount = 0;
+let manualSelectionUntil = 0;
 let calendarState = {
   year: new Date().getFullYear(),
   monthIndex: new Date().getMonth(),
@@ -333,7 +336,10 @@ async function fetchJsonWithTimeout(url, timeoutMs, fetchOptions) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...(fetchOptions || {}), signal: ctrl.signal });
+    const res = await fetch(url, {
+      ...(fetchOptions || {}),
+      signal: ctrl.signal,
+    });
     if (!res.ok) {
       throw new Error(`Request failed (${res.status})`);
     }
@@ -550,6 +556,8 @@ async function resolveDistrictKeyFromInput(value) {
 
 // Show district selector with optional message and clear flag
 function showDistrictSelector(message, clear = false) {
+  // Dropdown UI is part of the main app; never keep the blocking gate up.
+  hideTurnOnLocationButton();
   if (!el.districtSelector)
     el.districtSelector = document.getElementById("district-selector");
   if (!el.districtInput)
@@ -557,6 +565,53 @@ function showDistrictSelector(message, clear = false) {
   if (el.districtSelector) el.districtSelector.hidden = false;
   if (clear && el.districtInput) el.districtInput.value = "";
   setLocationNotice(message);
+}
+
+function showDropdownFallback(message) {
+  stopLocationTracking();
+  activeDistrictKey = null;
+  resetPrayerUI();
+  showDistrictSelector(
+    message ||
+      "Could not detect your district — please select manually from the dropdown.",
+    false
+  );
+}
+
+function geolocationErrorCode(err) {
+  return err && typeof err === "object" ? err.code : null;
+}
+
+function probeGeolocation(timeoutMs) {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve({ ok: false, err: { code: 0 } });
+      return;
+    }
+
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ ok: true, pos }),
+        (err) => resolve({ ok: false, err }),
+        {
+          enableHighAccuracy: false,
+          timeout: timeoutMs,
+          maximumAge: 0,
+        }
+      );
+    } catch (e) {
+      resolve({ ok: false, err: e });
+    }
+  });
+}
+
+async function resolveAndApplyFromCoords(coords) {
+  const loc = await reverseGeocode(coords.latitude, coords.longitude);
+  const district = loc && loc.district ? loc.district : null;
+  if (!district) return false;
+  lastResolvedDistrict = district;
+  await applyDistrict(district);
+  return true;
 }
 
 // Stop location tracking
@@ -597,42 +652,30 @@ async function applyDistrict(districtName) {
 
 // Start location tracking
 async function startLocationTracking() {
+  geoFailureCount = 0;
   stopLocationTracking();
 
   if (!navigator.geolocation) {
-    hideTurnOnLocationButton();
-    await ensureDistrictOptions();
-    resetPrayerUI();
-    showDistrictSelector(
+    showDropdownFallback(
       "Location is not supported — please select your district from the dropdown box."
     );
     return;
   }
 
   if (!canUseGeolocation()) {
-    hideTurnOnLocationButton();
-    await ensureDistrictOptions();
-    resetPrayerUI();
-    showDistrictSelector(
+    showDropdownFallback(
       "Auto-detect requires HTTPS on most mobile browsers — please select your district from the dropdown box."
     );
     return;
   }
 
-  // Fast first fix: try a quick one-time position lookup so mobile users
-  // don't wait too long before seeing results (watchPosition can be slow).
+  // Quick one-time position lookup so the user gets results fast.
   try {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          const loc = await reverseGeocode(
-            pos.coords.latitude,
-            pos.coords.longitude
-          );
-          const district = loc && loc.district ? loc.district : null;
-          if (!district) return;
-          lastResolvedDistrict = district;
-          await applyDistrict(district);
+          currentPermissionState = "granted";
+          const applied = await resolveAndApplyFromCoords(pos.coords);
         } catch (e) {
           console.error(e);
         }
@@ -658,6 +701,16 @@ async function startLocationTracking() {
         const district = loc && loc.district ? loc.district : null;
         if (!district) return;
 
+        // Don't override a recent manual district selection.
+        if (
+          Date.now() < manualSelectionUntil &&
+          lastResolvedDistrict &&
+          normalizeDistrict(lastResolvedDistrict) !==
+            normalizeDistrict(district)
+        ) {
+          return;
+        }
+
         if (
           lastResolvedDistrict &&
           normalizeDistrict(lastResolvedDistrict) ===
@@ -680,17 +733,15 @@ async function startLocationTracking() {
       }
     },
     async (err) => {
-      const code = err && typeof err === "object" ? err.code : null;
+      const code = geolocationErrorCode(err);
 
       // 1 = permission denied
       if (code === 1) {
+        currentPermissionState = "denied";
         stopLocationTracking();
-        activeDistrictKey = null;
-        hideTurnOnLocationButton();
-        await ensureDistrictOptions();
-        resetPrayerUI();
-        showDistrictSelector(
-          "Location permission denied — please select your location manually from the dropdown box."
+        // Your requirement: show "Turn on location" even if permission not given.
+        showTurnOnLocationButton(
+          "Location permission not allowed. Turn ON location, or use the dropdown to select your district."
         );
         return;
       }
@@ -698,35 +749,28 @@ async function startLocationTracking() {
       // 2 = position unavailable, 3 = timeout
       if (code === 2 || code === 3) {
         stopLocationTracking();
-        activeDistrictKey = null;
         resetPrayerUI();
-        // Show appropriate message based on permission state
-        if (currentPermissionState === "granted") {
+
+        // First failure: show the turn-on-location gate.
+        if (geoFailureCount < 1) {
+          geoFailureCount += 1;
           showTurnOnLocationButton(
-            "Please turn ON location and tap the button to detect your district."
+            "Location is OFF or unavailable. Please turn ON location, then tap the button again."
           );
-        } else {
-          hideTurnOnLocationButton();
-          await ensureDistrictOptions();
-          showDistrictSelector(
-            "Location is unavailable — please select your district from the dropdown box."
-          );
+          return;
         }
+
+        // Repeated failure: fall back to dropdown.
+        showDropdownFallback(
+          "Location could not be detected (timeout/unavailable). Please select your district from the dropdown box."
+        );
         return;
       }
 
       resetPrayerUI();
-      if (currentPermissionState === "granted") {
-        showTurnOnLocationButton(
-          "Please turn ON location and tap the button to detect your district."
-        );
-      } else {
-        hideTurnOnLocationButton();
-        await ensureDistrictOptions();
-        showDistrictSelector(
-          "Location is unavailable — please select your district from the dropdown box."
-        );
-      }
+      showDropdownFallback(
+        "Location could not be detected — please select your district from the dropdown box."
+      );
     },
     {
       enableHighAccuracy: true,
@@ -753,6 +797,7 @@ function wireDistrictSelector() {
     const resolved = await resolveDistrictKeyFromInput(el.districtInput.value);
     if (!resolved) return;
 
+    manualSelectionUntil = Date.now() + CONFIG.MANUAL_SELECTION_LOCK_MS;
     lastResolvedDistrict = resolved;
     await applyDistrict(resolved);
   };
@@ -897,13 +942,24 @@ async function initApp() {
 
   if (!el.turnOnLocationBtn)
     el.turnOnLocationBtn = document.getElementById("turnOnLocationBtn");
-  el.turnOnLocationBtn?.addEventListener("click", () => {
-    // On button click, if permission is already granted, start tracking.
-    if (currentPermissionState === "granted") {
-      showTurnOnLocationButton("Detecting your location…");
-    } else {
-      showLocationPermissionGate("Requesting location access…");
+  el.turnOnLocationBtn?.addEventListener("click", async () => {
+    // If permission is denied (or we can't geolocate), go to dropdown.
+    if (!navigator.geolocation || !window.isSecureContext) {
+      showDropdownFallback(
+        "Auto-detect is unavailable here. Please select your district from the dropdown box."
+      );
+      return;
     }
+
+    if (currentPermissionState === "denied") {
+      showDropdownFallback(
+        "Location permission denied — please select your district from the dropdown box."
+      );
+      return;
+    }
+
+    // Otherwise, try to detect.
+    showTurnOnLocationButton("Detecting location…");
     startLocationTracking();
   });
 
@@ -913,35 +969,58 @@ async function initApp() {
 
     await ensureDistrictOptions();
 
-    // If geolocation can't be used (common on mobile over non-HTTPS), do not block the app.
-    if (!canUseGeolocation()) {
-      hideTurnOnLocationButton();
-      showDistrictSelector(
-        "Select your district from the dropdown. (Auto-detect needs HTTPS on most mobile browsers.)"
+    // Always attempt to request permission on app open (best-effort).
+    // Some browsers require a user gesture; in that case, the button will handle it.
+    if (!navigator.geolocation) {
+      showDropdownFallback(
+        "Location is not supported — please select your district from the dropdown box."
       );
-    } else {
-      showLocationPermissionGate("Checking location permission…");
-
-      const permState = await getGeolocationPermissionState();
-      currentPermissionState = permState;
-      if (permState === "denied") {
-        hideTurnOnLocationButton();
-        resetPrayerUI();
-        showDistrictSelector(
-          "Location permission denied — please select your location manually from the dropdown box."
-        );
-      } else if (permState === "granted") {
-        // Permission granted: show turn-on-location button.
-        showTurnOnLocationButton(
-          "Permission granted. Please turn ON location and tap the button to detect your district."
-        );
-      } else {
-        // Permission prompt or unknown: show allow-location-access button.
-        showLocationAccessButtonGate(
-          "Allow location access to auto-detect your district."
-        );
-      }
+      return;
     }
+
+    if (!window.isSecureContext) {
+      currentPermissionState = "insecure";
+      showTurnOnLocationButton(
+        "Auto-detect needs HTTPS on most browsers. Tap the button to continue with manual district selection."
+      );
+      return;
+    }
+
+    showLocationPermissionGate("Requesting location access…");
+    currentPermissionState = await getGeolocationPermissionState();
+
+    const probe = await probeGeolocation(CONFIG.QUICK_GPS_TIMEOUT);
+    if (probe.ok) {
+      currentPermissionState = "granted";
+      try {
+        showTurnOnLocationButton(
+          "Permission granted. Please turn ON location, then tap the button."
+        );
+        return;
+      } catch (e) {
+        console.error(e);
+      }
+      // If reverse-geocode fails, fall back.
+      showDropdownFallback(
+        "Could not detect your district — please select manually from the dropdown."
+      );
+      return;
+    }
+
+    const code = geolocationErrorCode(probe.err);
+    if (code === 1) {
+      currentPermissionState = "denied";
+      // Requirement: show "Turn on location" after permission not given.
+      showTurnOnLocationButton(
+        "Location permission not allowed. Turn ON location, then use the dropdown to select your district."
+      );
+      return;
+    }
+
+    // Unavailable/timeout: permission may be granted but GPS is OFF.
+    showTurnOnLocationButton(
+      "Please turn ON location, then tap the button to detect your district."
+    );
 
     try {
       if (navigator.permissions && navigator.permissions.query) {
@@ -954,20 +1033,17 @@ async function initApp() {
           if (state === "granted") {
             lastResolvedDistrict = null;
             showTurnOnLocationButton(
-              "Permission granted. Please turn ON location and tap the button to detect your district."
+              "Permission granted. If location is ON, tap to detect your district."
             );
           } else if (state === "denied") {
             stopLocationTracking();
-            hideTurnOnLocationButton();
-            await ensureDistrictOptions();
-            resetPrayerUI();
-            showDistrictSelector(
-              "Location permission denied — please select your location manually from the dropdown box."
+            showTurnOnLocationButton(
+              "Location permission denied. Turn ON location, then use the dropdown to select your district."
             );
           } else {
             stopLocationTracking();
             showLocationAccessButtonGate(
-              "Allow location access to get your prayer times."
+              "Allow location access to auto-detect your district."
             );
           }
         };
