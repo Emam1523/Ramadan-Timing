@@ -943,7 +943,7 @@ async function initApp() {
   if (!el.turnOnLocationBtn)
     el.turnOnLocationBtn = document.getElementById("turnOnLocationBtn");
   el.turnOnLocationBtn?.addEventListener("click", async () => {
-    // If permission is denied (or we can't geolocate), go to dropdown.
+    // If we can't use geolocation at all, go to dropdown.
     if (!navigator.geolocation || !window.isSecureContext) {
       showDropdownFallback(
         "Auto-detect is unavailable here. Please select your district from the dropdown box."
@@ -958,9 +958,62 @@ async function initApp() {
       return;
     }
 
-    // Otherwise, try to detect.
-    showTurnOnLocationButton("Detecting location…");
-    startLocationTracking();
+    // Show a clear reminder before requesting permission
+    showLocationPermissionGate(
+      "Make sure location is ON, then allow access in the next prompt…"
+    );
+
+    // Small delay so user sees the message
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Try to get location - this will trigger permission prompt if needed
+    const probe = await probeGeolocation(CONFIG.QUICK_GPS_TIMEOUT);
+    
+    if (probe.ok) {
+      // Location is ON and permission granted - automatically track
+      currentPermissionState = "granted";
+      showLocationPermissionGate("Location detected! Loading prayer times…");
+      try {
+        const applied = await resolveAndApplyFromCoords(probe.pos.coords);
+        if (applied) {
+          // Start tracking for updates
+          startLocationTracking();
+          return;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      // If geocoding failed, fall back
+      showDropdownFallback(
+        "Could not detect your district — please select manually from the dropdown."
+      );
+      return;
+    }
+
+    // Location probe failed - check error code
+    const code = geolocationErrorCode(probe.err);
+    
+    if (code === 1) {
+      // Permission denied
+      currentPermissionState = "denied";
+      showDropdownFallback(
+        "Location permission denied — please select your district from the dropdown box."
+      );
+      return;
+    }
+
+    if (code === 2 || code === 3) {
+      // Location is OFF or unavailable
+      showTurnOnLocationButton(
+        " Location is OFF on your device! Turn ON location, then tap the button again."
+      );
+      return;
+    }
+
+    // Other error
+    showTurnOnLocationButton(
+      "Could not detect location. Please turn ON location and try again."
+    );
   });
 
   try {
@@ -969,8 +1022,7 @@ async function initApp() {
 
     await ensureDistrictOptions();
 
-    // Always attempt to request permission on app open (best-effort).
-    // Some browsers require a user gesture; in that case, the button will handle it.
+    // Check if geolocation is available
     if (!navigator.geolocation) {
       showDropdownFallback(
         "Location is not supported — please select your district from the dropdown box."
@@ -980,48 +1032,21 @@ async function initApp() {
 
     if (!window.isSecureContext) {
       currentPermissionState = "insecure";
-      showTurnOnLocationButton(
-        "Auto-detect needs HTTPS on most browsers. Tap the button to continue with manual district selection."
+      showDropdownFallback(
+        "Auto-detect needs HTTPS. Please select your district from the dropdown box."
       );
       return;
     }
 
-    showLocationPermissionGate("Requesting location access…");
+    // ALWAYS show "Turn on location" button first (Android flow)
+    // Don't auto-request permission; wait for user to tap the button.
     currentPermissionState = await getGeolocationPermissionState();
 
-    const probe = await probeGeolocation(CONFIG.QUICK_GPS_TIMEOUT);
-    if (probe.ok) {
-      currentPermissionState = "granted";
-      try {
-        showTurnOnLocationButton(
-          "Permission granted. Please turn ON location, then tap the button."
-        );
-        return;
-      } catch (e) {
-        console.error(e);
-      }
-      // If reverse-geocode fails, fall back.
-      showDropdownFallback(
-        "Could not detect your district — please select manually from the dropdown."
-      );
-      return;
-    }
-
-    const code = geolocationErrorCode(probe.err);
-    if (code === 1) {
-      currentPermissionState = "denied";
-      // Requirement: show "Turn on location" after permission not given.
-      showTurnOnLocationButton(
-        "Location permission not allowed. Turn ON location, then use the dropdown to select your district."
-      );
-      return;
-    }
-
-    // Unavailable/timeout: permission may be granted but GPS is OFF.
     showTurnOnLocationButton(
-      "Please turn ON location, then tap the button to detect your district."
+      "Give location access permission."
     );
 
+    // Monitor permission changes
     try {
       if (navigator.permissions && navigator.permissions.query) {
         const status = await navigator.permissions.query({
@@ -1033,17 +1058,17 @@ async function initApp() {
           if (state === "granted") {
             lastResolvedDistrict = null;
             showTurnOnLocationButton(
-              "Permission granted. If location is ON, tap to detect your district."
+              "Permission granted. Turn ON location and tap the button to detect your district."
             );
           } else if (state === "denied") {
             stopLocationTracking();
-            showTurnOnLocationButton(
-              "Location permission denied. Turn ON location, then use the dropdown to select your district."
+            showDropdownFallback(
+              "Location permission denied — please select your district from the dropdown box."
             );
           } else {
             stopLocationTracking();
-            showLocationAccessButtonGate(
-              "Allow location access to auto-detect your district."
+            showTurnOnLocationButton(
+              "Turn ON location and tap the button."
             );
           }
         };
