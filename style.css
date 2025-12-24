@@ -854,6 +854,7 @@
         }
         
         .footer-description {
+            color: rgba(255, 255, 255, 0.8);
             max-width: 800px;
             margin: 0 auto 1.8rem;
             font-size: 1.1rem;
@@ -951,26 +952,15 @@
             
             .ramadan-info-row {
                 grid-template-columns: 1fr;
-                gap: 0.8rem;
-                margin-bottom: 1.5rem;
+                gap: 1rem;
             }
             
             .ramadan-card {
-                padding: 1.22rem;
-            }
-            
-            .ramadan-card i {
-                font-size: 2.82rem;
-                margin-bottom: 0.92rem;
-            }
-            
-            .ramadan-card h3 {
-                font-size: 1.17rem;
-                margin-bottom: 0.62rem;
+                padding: 0.8rem;
             }
             
             .ramadan-card .value {
-                font-size: 2.42rem;
+                font-size: 2.5rem;
             }
             
             .prayer-times-container {
@@ -1023,22 +1013,8 @@
                 padding: 1.2rem;
             }
             
-            .ramadan-card {
-                padding: 1.12rem;
-            }
-            
-            .ramadan-card i {
-                font-size: 2.42rem;
-                margin-bottom: 0.82rem;
-            }
-            
-            .ramadan-card h3 {
-                font-size: 1.12rem;
-                margin-bottom: 0.52rem;
-            }
-            
             .ramadan-card .value {
-                font-size: 2.12rem;
+                font-size: 2.2rem;
             }
             
             .footer-logo {
