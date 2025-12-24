@@ -362,9 +362,8 @@ async function reverseGeocode(lat, lon) {
   };
 }
 
+//Check Geolocation Availability
 function canUseGeolocation() {
-  // Most mobile browsers require a secure context for Geolocation.
-  // (HTTPS, or localhost; LAN http://192.168.x.x is typically NOT secure.)
   return Boolean(window.isSecureContext && navigator.geolocation);
 }
 
@@ -960,9 +959,6 @@ async function initApp() {
 
     // Show detecting message
     showLocationPermissionGate("Detecting your location…");
-
-    // Try to get location - use longer timeout for better reliability
-    // This will trigger permission prompt if needed
     const probe = await probeGeolocation(CONFIG.GPS_TIMEOUT);
     
     if (probe.ok) {
@@ -1035,8 +1031,7 @@ async function initApp() {
       return;
     }
 
-    // ALWAYS show "Turn on location" button first (Android flow)
-    // Don't auto-request permission; wait for user to tap the button.
+    // Get current permission state
     currentPermissionState = await getGeolocationPermissionState();
 
     showTurnOnLocationButton(
