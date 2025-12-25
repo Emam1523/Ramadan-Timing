@@ -357,8 +357,24 @@ async function reverseGeocode(lat, lon) {
 
   const data = await fetchJsonWithTimeout(url, 4500);
 
+  // Try to find Admin Level 5 (District in BD)
+  let districtName = null;
+  if (data.localityInfo && Array.isArray(data.localityInfo.administrative)) {
+    const admin5 = data.localityInfo.administrative.find(
+      (x) => x.adminLevel === 5
+    );
+    if (admin5 && admin5.name) {
+      districtName = admin5.name;
+    }
+  }
+
+  // Fallback if Admin 5 not found
+  if (!districtName) {
+    districtName = data.city || data.locality || "Unknown";
+  }
+
   return {
-    district: data.city || data.locality || "Unknown",
+    district: districtName,
   };
 }
 
