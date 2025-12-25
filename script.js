@@ -3,7 +3,7 @@ const CONFIG = {
   GPS_TIMEOUT: 8000,
   QUICK_GPS_TIMEOUT: 3500,
   DB_TIMEOUT: 5000,
-  MANUAL_SELECTION_LOCK_MS: 10000,
+  MANUAL_SELECTION_LOCK_MS: 30000,
 };
 
 //Helpers
@@ -625,12 +625,31 @@ function stopLocationTracking() {
 async function applyDistrict(districtName) {
   ramadanDateSet = null;
 
+  // Always show the detected location name
+  updateTopInfoUI({ district: districtName });
+
   const prayerData = await getPrayerTimes(districtName);
   if (!prayerData) {
     await ensureDistrictOptions();
-    resetPrayerUI();
+
+    // Show "Unavailable" for all prayer times
+    setText(el.ramadanDay, "Unavailable");
+    setText(el.sehri, "Unavailable");
+    setText(el.iftar, "Unavailable");
+
+    for (const p in prayerStart) {
+      setText(prayerStart[p], "Unavailable");
+      setText(prayerJamaah[p], "Unavailable");
+    }
+
+    // Clear any current prayer highlighting
+    document
+      .querySelectorAll("#prayer-table tbody tr")
+      .forEach((r) => r.classList.remove("current-prayer"));
+
+    hideTurnOnLocationButton();
     showDistrictSelector(
-      "Your detected location isn't in our district list — please select a district."
+      `Your current location is "${districtName}". Prayer times for "${districtName}" are not available. Please select a nearby district from the dropdown.`
     );
     return;
   }
@@ -639,7 +658,6 @@ async function applyDistrict(districtName) {
   showDistrictSelector(null);
   setLocationNotice(null);
 
-  updateTopInfoUI({ district: districtName });
   renderPrayerTimes(prayerData);
 
   calendarState.selectedDateKey = today();
@@ -960,7 +978,7 @@ async function initApp() {
     // Show detecting message
     showLocationPermissionGate("Detecting your location…");
     const probe = await probeGeolocation(CONFIG.GPS_TIMEOUT);
-    
+
     if (probe.ok) {
       // Location is ON and permission granted - automatically track
       currentPermissionState = "granted";
@@ -984,7 +1002,7 @@ async function initApp() {
 
     // Location probe failed - check error code
     const code = geolocationErrorCode(probe.err);
-    
+
     if (code === 1) {
       // Permission denied
       currentPermissionState = "denied";
@@ -1034,9 +1052,7 @@ async function initApp() {
     // Get current permission state
     currentPermissionState = await getGeolocationPermissionState();
 
-    showTurnOnLocationButton(
-      "Give location access permission."
-    );
+    showTurnOnLocationButton("Give location access permission.");
 
     // Monitor permission changes
     try {
@@ -1059,9 +1075,7 @@ async function initApp() {
             );
           } else {
             stopLocationTracking();
-            showTurnOnLocationButton(
-              "Turn ON location and tap the button."
-            );
+            showTurnOnLocationButton("Turn ON location and tap the button.");
           }
         };
       }
