@@ -88,8 +88,7 @@ const el = {
   appContainer: document.getElementById("appContainer"),
 
   districtSelector: document.getElementById("district-selector"),
-  districtInput: document.getElementById("districtInput"),
-  districtOptions: document.getElementById("districtOptions"),
+  districtSelect: document.getElementById("districtSelect"),
 
   ramadanDay: document.getElementById("ramadan-day"),
   sehri: document.getElementById("sehri-time"),
@@ -542,44 +541,73 @@ async function getDistrictEntriesMap() {
 
 //District Selector
 async function ensureDistrictOptions() {
-  if (!el.districtInput)
-    el.districtInput = document.getElementById("districtInput");
-  if (!el.districtOptions)
-    el.districtOptions = document.getElementById("districtOptions");
-  if (!el.districtOptions) return;
+  if (!el.districtSelect)
+    el.districtSelect = document.getElementById("districtSelect");
+  if (!el.districtSelect) return;
+
+  // Don't repopulate if already populated
+  if (el.districtSelect.options.length > 1) return;
 
   const db = await loadDB();
   const keys = Object.keys(db).sort((a, b) => a.localeCompare(b));
 
   districtKeyByLower = new Map(keys.map((k) => [k.toLowerCase(), k]));
 
-  el.districtOptions.innerHTML = "";
+  // Keep the first "Select district..." option
+  while (el.districtSelect.options.length > 1) {
+    el.districtSelect.remove(1);
+  }
+
   for (const k of keys) {
     const opt = document.createElement("option");
     opt.value = k;
-    el.districtOptions.appendChild(opt);
+    opt.textContent = k;
+    el.districtSelect.appendChild(opt);
   }
 }
 
-// Resolve district key from user input
-async function resolveDistrictKeyFromInput(value) {
-  if (!districtKeyByLower) await ensureDistrictOptions();
-  const v = String(value || "").trim();
-  if (!v) return null;
-  return districtKeyByLower.get(v.toLowerCase()) || null;
-}
-
-// Show district selector with optional message and clear flag
+// Show district selector with optional message
 function showDistrictSelector(message, clear = false) {
-  // Dropdown UI is part of the main app; never keep the blocking gate up.
   hideTurnOnLocationButton();
   if (!el.districtSelector)
     el.districtSelector = document.getElementById("district-selector");
-  if (!el.districtInput)
-    el.districtInput = document.getElementById("districtInput");
+  if (!el.districtSelect)
+    el.districtSelect = document.getElementById("districtSelect");
+
   if (el.districtSelector) el.districtSelector.hidden = false;
-  if (clear && el.districtInput) el.districtInput.value = "";
+
+  // If clear is true, select the placeholder
+  if (clear && el.districtSelect) {
+    el.districtSelect.value = "";
+  }
+
+  // If we have an active district, try to select it
+  if (activeDistrictKey && el.districtSelect) {
+    // Check if option exists (it should if we populated)
+    if (
+      el.districtSelect.querySelector(`option[value="${activeDistrictKey}"]`)
+    ) {
+      el.districtSelect.value = activeDistrictKey;
+    }
+  }
+
   setLocationNotice(message);
+}
+
+// Wire up district selector events
+function wireDistrictSelector() {
+  if (!el.districtSelect)
+    el.districtSelect = document.getElementById("districtSelect");
+  if (!el.districtSelect) return;
+
+  el.districtSelect.addEventListener("change", async () => {
+    const val = el.districtSelect.value;
+    if (!val) return;
+
+    manualSelectionUntil = Date.now() + CONFIG.MANUAL_SELECTION_LOCK_MS;
+    lastResolvedDistrict = val;
+    await applyDistrict(val);
+  });
 }
 
 function showDropdownFallback(message) {
@@ -820,29 +848,9 @@ function normalizeDistrict(str) {
     .replace(/[^a-z]/g, "");
 }
 
-// Wire up district selector input events
-function wireDistrictSelector() {
-  if (!el.districtInput)
-    el.districtInput = document.getElementById("districtInput");
-  if (!el.districtInput) return;
-
-  const tryLoad = async () => {
-    const resolved = await resolveDistrictKeyFromInput(el.districtInput.value);
-    if (!resolved) return;
-
-    manualSelectionUntil = Date.now() + CONFIG.MANUAL_SELECTION_LOCK_MS;
-    lastResolvedDistrict = resolved;
-    await applyDistrict(resolved);
-  };
-
-  el.districtInput.addEventListener("change", tryLoad);
-  el.districtInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      tryLoad();
-    }
-  });
-}
+// Wire up district selector input events - DEPRECATED / REMOVED
+// Replaced by inline wireDistrictSelector above
+function noop() {}
 
 // Render Calendar
 async function renderCalendar() {
