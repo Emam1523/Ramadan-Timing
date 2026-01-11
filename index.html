@@ -8,7 +8,7 @@
             rel="stylesheet"
             href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
         />
-        <link rel="stylesheet" href="style.css" />
+        <link rel="stylesheet" href="/css/style.css" />
     </head>
     <body>
         
@@ -115,17 +115,21 @@
 
             <div id="location-notice" class="location-notice" hidden role="status" aria-live="polite"></div>
 
-            <div id="district-selector" class="district-selector" hidden>
-                <label for="districtInput">Select district:</label>
-                <input
-                    id="districtInput"
-                    type="search"
-                    list="districtOptions"
-                    placeholder="Type district name..."
-                    aria-label="Select district"
-                    autocomplete="off"
-                />
-                <datalist id="districtOptions"></datalist>
+            <!-- Controls Row: District Selector & Download Button -->
+            <div class="controls-row">
+                <div id="district-selector" class="district-selector" hidden>
+                    <label for="districtSelect">Select district:</label>
+                    <select id="districtSelect" aria-label="Select district">
+                        <option value="" disabled selected>Select district...</option>
+                    </select>
+                </div>
+
+                <div class="download-calendar-container">
+                    <button id="downloadCalendarBtn" class="download-calendar-btn" type="button">
+                        <i class="fas fa-download"></i>
+                        <span>Download Calendar</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Second row: Combined Ramadan info card -->
@@ -149,14 +153,6 @@
                         <div class="value" id="iftar-time">--</div>
                     </div>
                 </div>
-            </div>
-
-            <!-- Download Calendar Button -->
-            <div class="download-calendar-container">
-                <button id="downloadCalendarBtn" class="download-calendar-btn" type="button">
-                    <i class="fas fa-download"></i>
-                    <span>Download Ramadan Calendar</span>
-                </button>
             </div>
 
             <!-- Prayer times table -->
@@ -278,10 +274,10 @@
                     Powered by PANTONIX
                 </p>
                 <p class="copyright">
-                    &copy; 2025 Ramadan Prayer Times. All rights reserved. |
-                    Designed with
+                    &copy; 2026 INCEPTA. All rights reserved. |
+                    DEVELOPED BY
                     <!-- <i class="fas fa-heart" style="color: #ff6b6b"></i> for the -->
-                    Ummah
+                    <a href="https://soft360d.com" target="_blank" rel="noopener noreferrer" style="color: yellow; text-decoration: none;">Soft360d Limited</a> 
                 </p>
             </div>
         </footer>
