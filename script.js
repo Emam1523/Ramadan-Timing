@@ -301,15 +301,6 @@ function showLocationPermissionGate(message) {
   });
 }
 
-// Gate with button to request location access
-function showLocationAccessButtonGate(message) {
-  showLocationGate(message || "Tap the button to allow location access.", {
-    showButton: true,
-    title: "Allow location access",
-    buttonText: "Allow location access",
-  });
-}
-
 // Hides the location gate and shows the main app container.
 function hideTurnOnLocationButton() {
   if (!el.locationGate)
@@ -847,10 +838,6 @@ function normalizeDistrict(str) {
     .toLowerCase()
     .replace(/[^a-z]/g, "");
 }
-
-// Wire up district selector input events - DEPRECATED / REMOVED
-// Replaced by inline wireDistrictSelector above
-function noop() {}
 
 // Render Calendar
 async function renderCalendar() {
