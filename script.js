@@ -1147,59 +1147,64 @@ async function downloadRamadanCalendar() {
 
     // Initialize jsPDF
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF("p", "mm", "a4"); 
 
-    // Set up colors
-    const primaryColor = [12, 59, 46]; // #0c3b2e
-    const secondaryColor = [26, 92, 72]; // #1a5c48
-    const accentColor = [255, 158, 109]; // #ff9e6d
+    // Set up colors - Pantonix Theme
+    const primaryColor = [12, 59, 46];
+    const secondaryColor = [26, 92, 72];
+    const accentColor = [255, 158, 109]; 
+    const lightRowColor = [240, 250, 245]; 
+    const borderColor = [0, 0, 0]; 
 
-    // Add title
-    doc.setFontSize(20);
+    // --- Header Section ---
+
+    doc.setFontSize(22);
     doc.setTextColor(...primaryColor);
     doc.setFont(undefined, "bold");
-    doc.text("Pantonix Daily Ramadan Schedule", 105, 20, { align: "center" });
+    doc.text("Pantonix Daily Ramadan Schedule", 105, 18, { align: "center" });
 
-    // Add Logo and District Name (Centered)
-    doc.setFontSize(14);
+    // Logo & District Line
+    doc.setFontSize(16); 
     doc.setTextColor(...secondaryColor);
 
     const districtText = `District: ${activeDistrictKey}`;
+
+    // Logo config - INCREASED SIZE
+    const logoWidth = 55; 
+    const logoHeight = 22;
+    const gap = 8;
+
+    // Calculate centering (Logo on Left, Text on Right side-by-side)
     const textWidth = doc.getTextWidth(districtText);
+    const combinedWidth = logoWidth + gap + textWidth;
+    const startXCenter = 105 - combinedWidth / 2;
 
-    // Logo dimensions
-    const logoWidth = 36;
-    const logoHeight = 15;
-    const gap = 15;
+    let currentY = 32; // Moved down slightly to give title breathing room
 
-    // Calculate centered position
-    const totalContentWidth = logoWidth + gap + textWidth;
-    const headerStartX = 105 - totalContentWidth / 2;
-
-    // Draw Logo if available
+    // Draw Logo
     if (typeof LOGO_BASE64 !== "undefined") {
+      // Centered vertically relative to the text line
       doc.addImage(
         LOGO_BASE64,
         "JPEG",
-        headerStartX,
-        22,
+        startXCenter,
+        currentY - 8,
         logoWidth,
         logoHeight
       );
     }
 
-    // Draw Text
-    doc.text(districtText, headerStartX + logoWidth + gap, 30);
+    // Draw District Text. 
+    doc.text(districtText, startXCenter + logoWidth + gap, currentY + 4);
 
-    // Add line separator
+    // Decorative Line
+    const lineY = currentY + 16;
     doc.setDrawColor(...accentColor);
-    doc.setLineWidth(0.5);
-    doc.line(20, 35, 190, 35);
+    doc.setLineWidth(0.8); 
+    doc.line(20, lineY, 190, lineY);
 
-    // Table headers
-    const headers = ["Ramadan Day", "Date", "Sehri Ends", "Iftar Time"];
-
-    // Prepare table data
+    // Table Section
+    const tableHeaders = ["Ramadan Day", "Date", "Sehri Ends", "Iftar Time"];
     const tableData = ramadanData.map((item) => [
       item.ramadanDay.toString(),
       item.date || "--",
@@ -1207,111 +1212,109 @@ async function downloadRamadanCalendar() {
       item.iftar || "--",
     ]);
 
-    // Calculate column widths
-    const pageWidth = 190;
     const startX = 20;
-    const colWidths = [30, 40, 40, 40];
+    const tableWidth = 170;
+    const colWidths = [30, 45, 47.5, 47.5];
 
-    // Draw table header
-    let currentY = 42;
+    const headerHeight = 10;
+    const rowHeight = 7;
+
+    // Start table further down to account for larger header
+    let tableY = lineY + 5; 
+
+    // Draw Header
     doc.setFillColor(...primaryColor);
-    doc.rect(startX, currentY, pageWidth - 20, 10, "F");
+    doc.setDrawColor(...borderColor);
+    doc.setLineWidth(0.1);
 
+    // Header Background Rect
+    doc.rect(startX, tableY, tableWidth, headerHeight, "FD");
+
+    // Header Text
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(11);
     doc.setFont(undefined, "bold");
 
-    let currentX = startX;
-    headers.forEach((header, index) => {
-      doc.text(header, currentX + colWidths[index] / 2, currentY + 7, {
-        align: "center",
-      });
-      currentX += colWidths[index];
+    let hx = startX;
+    tableHeaders.forEach((h, i) => {
+      const cx = hx + colWidths[i] / 2;
+      doc.text(h, cx, tableY + 6.5, { align: "center" });
+
+      // Vertical Separator (skipped for last col)
+      if (i < tableHeaders.length - 1) {
+        hx += colWidths[i];
+        doc.line(hx, tableY, hx, tableY + headerHeight);
+      } else {
+        hx += colWidths[i];
+      }
     });
 
-    currentY += 10;
+    tableY += headerHeight;
 
-    // Draw table rows
-    doc.setTextColor(0, 0, 0);
+    // Draw Rows
+    doc.setFontSize(10.5); 
     doc.setFont(undefined, "normal");
-    doc.setFontSize(10);
 
-    tableData.forEach((row, rowIndex) => {
-      // Check if we need a new page
-      if (currentY > 280) {
+    tableData.forEach((row, idx) => {
+      // Page break check (unlikely needed but safe)
+      if (tableY + rowHeight > 295) {
         doc.addPage();
-        currentY = 20;
-
-        // Redraw header on new page
+        tableY = 15;
+        // Draw Header again on new page
         doc.setFillColor(...primaryColor);
-        doc.rect(startX, currentY, pageWidth - 20, 10, "F");
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(11);
-        doc.setFont(undefined, "bold");
-
-        currentX = startX;
-        headers.forEach((header, index) => {
-          doc.text(header, currentX + colWidths[index] / 2, currentY + 7, {
-            align: "center",
-          });
-          currentX += colWidths[index];
-        });
-
-        currentY += 10;
-        doc.setTextColor(0, 0, 0);
-        doc.setFont(undefined, "normal");
-        doc.setFontSize(10);
+        doc.rect(startX, tableY, tableWidth, headerHeight, "FD");
+        // ... (Simple header redraw logic omitted for specific 1-page request)
+        tableY += headerHeight;
       }
 
-      // Alternate row colors
-      if (rowIndex % 2 === 0) {
-        doc.setFillColor(248, 253, 250); // Light background
-        doc.rect(startX, currentY, pageWidth - 20, 7, "F");
+      // Alternating Background
+      if (idx % 2 === 0) {
+        doc.setFillColor(...lightRowColor);
+        doc.rect(startX, tableY, tableWidth, rowHeight, "F");
       }
 
-      // Draw row data
-      currentX = startX;
-      row.forEach((cell, cellIndex) => {
-        // Bold the Ramadan Day column
-        if (cellIndex === 0) {
+      // Draw Cell Borders (Grid)
+      doc.setDrawColor(...borderColor);
+      doc.setLineWidth(0.1);
+      doc.rect(startX, tableY, tableWidth, rowHeight, "S"); 
+
+      let cx = startX;
+      let cellY = tableY + 5.5; 
+
+      row.forEach((text, i) => {
+        // Vertical line first (except start)
+        if (i > 0) doc.line(cx, tableY, cx, tableY + rowHeight);
+
+        // Text Color/Style
+        if (i === 0) {
           doc.setFont(undefined, "bold");
-          doc.setTextColor(...secondaryColor);
+          doc.setTextColor(...secondaryColor); 
         } else {
           doc.setFont(undefined, "normal");
-          doc.setTextColor(0, 0, 0);
+          doc.setTextColor(0, 0, 0); 
         }
 
-        doc.text(cell, currentX + colWidths[cellIndex] / 2, currentY + 5, {
-          align: "center",
-        });
-        currentX += colWidths[cellIndex];
+        // Draw Text
+        doc.text(text, cx + colWidths[i] / 2, cellY, { align: "center" });
+
+        cx += colWidths[i];
       });
 
-      // Draw row border
-      doc.setDrawColor(230, 230, 230);
-      doc.setLineWidth(0.1);
-      doc.line(startX, currentY + 7, startX + pageWidth - 20, currentY + 7);
-
-      currentY += 7;
+      tableY += rowHeight;
     });
 
-    // Add footer
-    const pageCount = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(9);
-      doc.setTextColor(128, 128, 128);
-      doc.setFont(undefined, "normal");
-      doc.text(`Powered by PANTONIX | Page ${i} of ${pageCount}`, 105, 290, {
-        align: "center",
-      });
-    }
+    // Simple Footer
+    const pageHeight = doc.internal.pageSize.getHeight();
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.setFont(undefined, "normal");
+    doc.text("Powered by PANTONIX", 105, pageHeight - 5, { align: "center" });
 
-    // Save the PDF
+    // Save
     const fileName = `Ramadan_Calendar_${activeDistrictKey}_2025.pdf`;
     doc.save(fileName);
 
-    // Remove loading state
+    // Reset button
     if (btn) {
       btn.classList.remove("loading");
       btn.disabled = false;
