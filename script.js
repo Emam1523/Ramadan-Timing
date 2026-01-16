@@ -129,7 +129,7 @@ const prayerJamaah = {
 let prayerDB = null;
 let prayerDBPromise = null;
 let activeDistrictKey = null;
-let districtKeyByLower = null;
+
 let ramadanDateSet = null;
 let locationWatchId = null;
 let lastResolvedDistrict = null;
@@ -430,7 +430,11 @@ async function getPrayerTimes(district) {
   if (pastOrToday.length > 0) return pastOrToday[pastOrToday.length - 1].item;
 
   withParsed.sort((a, b) => a.parsed.getTime() - b.parsed.getTime());
-  return (withParsed[0] && withParsed[0].item) || list[0];
+
+  // If we are here, it means the current date is BEFORE the first date in the list.
+  // Return a special object indicating "upcoming" status.
+  const firstEntry = (withParsed[0] && withParsed[0].item) || list[0];
+  return { isUpcoming: true, nextDate: firstEntry.date };
 }
 
 //Render Prayer Times
@@ -541,8 +545,6 @@ async function ensureDistrictOptions() {
 
   const db = await loadDB();
   const keys = Object.keys(db).sort((a, b) => a.localeCompare(b));
-
-  districtKeyByLower = new Map(keys.map((k) => [k.toLowerCase(), k]));
 
   // Keep the first "Select district..." option
   while (el.districtSelect.options.length > 1) {
@@ -664,6 +666,26 @@ async function applyDistrict(districtName) {
   updateTopInfoUI({ district: districtName });
 
   const prayerData = await getPrayerTimes(districtName);
+
+  // Handle upcoming Ramadan case
+  if (prayerData && prayerData.isUpcoming) {
+    hideTurnOnLocationButton();
+    showDistrictSelector(null); // Ensure district selector is visible/state is clean
+
+    // Clear the prayer UI so it doesn't show old data
+    renderPrayerTimes({});
+    // Set a specialized message
+    setLocationNotice(
+      `Ramadan has not started yet. The first of Ramadan is on ${prayerData.nextDate}.`
+    );
+
+    calendarState.selectedDateKey = today();
+    if (navEl.calendarModal?.classList.contains("active")) {
+      renderCalendar();
+    }
+    return;
+  }
+
   if (!prayerData) {
     await ensureDistrictOptions();
 
@@ -1147,14 +1169,14 @@ async function downloadRamadanCalendar() {
 
     // Initialize jsPDF
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF("p", "mm", "a4"); 
+    const doc = new jsPDF("p", "mm", "a4");
 
     // Set up colors - Pantonix Theme
     const primaryColor = [12, 59, 46];
     const secondaryColor = [26, 92, 72];
-    const accentColor = [255, 158, 109]; 
-    const lightRowColor = [240, 250, 245]; 
-    const borderColor = [0, 0, 0]; 
+    const accentColor = [255, 158, 109];
+    const lightRowColor = [240, 250, 245];
+    const borderColor = [0, 0, 0];
 
     // --- Header Section ---
 
@@ -1164,13 +1186,13 @@ async function downloadRamadanCalendar() {
     doc.text("Pantonix Daily Ramadan Schedule", 105, 18, { align: "center" });
 
     // Logo & District Line
-    doc.setFontSize(16); 
+    doc.setFontSize(16);
     doc.setTextColor(...secondaryColor);
 
     const districtText = `District: ${activeDistrictKey}`;
 
     // Logo config - INCREASED SIZE
-    const logoWidth = 55; 
+    const logoWidth = 55;
     const logoHeight = 22;
     const gap = 8;
 
@@ -1194,13 +1216,13 @@ async function downloadRamadanCalendar() {
       );
     }
 
-    // Draw District Text. 
+    // Draw District Text.
     doc.text(districtText, startXCenter + logoWidth + gap, currentY + 4);
 
     // Decorative Line
     const lineY = currentY + 16;
     doc.setDrawColor(...accentColor);
-    doc.setLineWidth(0.8); 
+    doc.setLineWidth(0.8);
     doc.line(20, lineY, 190, lineY);
 
     // Table Section
@@ -1220,7 +1242,7 @@ async function downloadRamadanCalendar() {
     const rowHeight = 7;
 
     // Start table further down to account for larger header
-    let tableY = lineY + 5; 
+    let tableY = lineY + 5;
 
     // Draw Header
     doc.setFillColor(...primaryColor);
@@ -1252,7 +1274,7 @@ async function downloadRamadanCalendar() {
     tableY += headerHeight;
 
     // Draw Rows
-    doc.setFontSize(10.5); 
+    doc.setFontSize(10.5);
     doc.setFont(undefined, "normal");
 
     tableData.forEach((row, idx) => {
@@ -1276,10 +1298,10 @@ async function downloadRamadanCalendar() {
       // Draw Cell Borders (Grid)
       doc.setDrawColor(...borderColor);
       doc.setLineWidth(0.1);
-      doc.rect(startX, tableY, tableWidth, rowHeight, "S"); 
+      doc.rect(startX, tableY, tableWidth, rowHeight, "S");
 
       let cx = startX;
-      let cellY = tableY + 5.5; 
+      let cellY = tableY + 5.5;
 
       row.forEach((text, i) => {
         // Vertical line first (except start)
@@ -1288,10 +1310,10 @@ async function downloadRamadanCalendar() {
         // Text Color/Style
         if (i === 0) {
           doc.setFont(undefined, "bold");
-          doc.setTextColor(...secondaryColor); 
+          doc.setTextColor(...secondaryColor);
         } else {
           doc.setFont(undefined, "normal");
-          doc.setTextColor(0, 0, 0); 
+          doc.setTextColor(0, 0, 0);
         }
 
         // Draw Text
